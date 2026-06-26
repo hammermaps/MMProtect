@@ -1,0 +1,56 @@
+{
+  "licenseServer": {
+    "baseUrl": "https://license.example.com",
+    "apiKey": "env:MM_ENCODER_API_KEY",
+    "timeoutSeconds": 30
+  },
+  "defaults": {
+    "phpMinVersion": "8.4",
+    "algorithm": "AES-256-GCM",
+    "keepPhpExtension": true,
+    "writeManifest": true
+  },
+  "projects": [
+    {
+      "projectKey": "mangelmelder",
+      "name": "Mangelmelder",
+      "version": "1.0.0",
+      "sourceRevision": "dev-local",
+      "sourceRoot": "./tests/php-demo",
+      "outputRoot": "./artifacts/encoded/mangelmelder",
+      "customer": {
+        "externalCustomerRef": "demo-kunde",
+        "name": "Demo Kunde GmbH",
+        "email": "demo@example.invalid",
+        "notes": "Lokaler Testkunde"
+      },
+      "license": {
+        "licenseKey": "MM-DEMO-0001",
+        "validFrom": "2026-01-01T00:00:00Z",
+        "validUntil": "2027-01-01T00:00:00Z",
+        "maxActivations": 3,
+        "features": ["base", "llm_assistant"]
+      },
+      "include": [
+        "src/**/*.php",
+        "config/**/*.php"
+      ],
+      "exclude": [
+        "vendor/**",
+        "public/assets/**",
+        "storage/**",
+        "cache/**",
+        "logs/**",
+        ".env",
+        "composer.json",
+        "composer.lock"
+      ],
+      "copyPlain": [
+        "public/**",
+        "vendor/**",
+        "composer.json",
+        "composer.lock"
+      ]
+    }
+  ]
+}

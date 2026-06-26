@@ -1,0 +1,21 @@
+{
+  "format": "MMENC1",
+  "formatVersion": 1,
+  "projectId": "proj_...",
+  "customerId": "cust_...",
+  "licenseId": "lic_...",
+  "buildId": "build_...",
+  "fileId": "file_...",
+  "relativePath": "src/App/Application.php",
+  "pathHash": "sha256:...",
+  "plainHash": "sha256:...",
+  "cipherHash": "sha256:...",
+  "algorithm": "AES-256-GCM",
+  "kdf": "HKDF-SHA256",
+  "keyId": "key_...",
+  "nonce": "base64...",
+  "tag": "base64...",
+  "manifestHash": "sha256:...",
+  "createdAt": "2026-06-26T12:00:00Z",
+  "signature": "base64..."
+}

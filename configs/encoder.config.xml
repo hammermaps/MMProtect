@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<encoderConfig>
+  <licenseServer>
+    <baseUrl>https://license.example.com</baseUrl>
+    <apiKey>env:MM_ENCODER_API_KEY</apiKey>
+    <timeoutSeconds>30</timeoutSeconds>
+  </licenseServer>
+
+  <defaults phpMinVersion="8.4" algorithm="AES-256-GCM" keepPhpExtension="true" writeManifest="true" />
+
+  <projects>
+    <project projectKey="mangelmelder" name="Mangelmelder" version="1.0.0" sourceRevision="dev-local">
+      <sourceRoot>./tests/php-demo</sourceRoot>
+      <outputRoot>./artifacts/encoded/mangelmelder</outputRoot>
+
+      <customer externalCustomerRef="demo-kunde" name="Demo Kunde GmbH" email="demo@example.invalid">
+        <notes>Lokaler Testkunde</notes>
+      </customer>
+
+      <license licenseKey="MM-DEMO-0001" validFrom="2026-01-01T00:00:00Z" validUntil="2027-01-01T00:00:00Z" maxActivations="3">
+        <feature>base</feature>
+        <feature>llm_assistant</feature>
+      </license>
+
+      <include>
+        <pattern>src/**/*.php</pattern>
+        <pattern>config/**/*.php</pattern>
+      </include>
+
+      <exclude>
+        <pattern>vendor/**</pattern>
+        <pattern>public/assets/**</pattern>
+        <pattern>storage/**</pattern>
+        <pattern>cache/**</pattern>
+        <pattern>logs/**</pattern>
+        <pattern>.env</pattern>
+        <pattern>composer.json</pattern>
+        <pattern>composer.lock</pattern>
+      </exclude>
+
+      <copyPlain>
+        <pattern>public/**</pattern>
+        <pattern>vendor/**</pattern>
+        <pattern>composer.json</pattern>
+        <pattern>composer.lock</pattern>
+      </copyPlain>
+    </project>
+  </projects>
+</encoderConfig>

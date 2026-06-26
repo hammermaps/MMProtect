@@ -1,0 +1,16 @@
+{
+  "format": "MMENC-LEASE-1",
+  "leaseId": "lease_...",
+  "projectId": "proj_...",
+  "customerId": "cust_...",
+  "licenseId": "lic_...",
+  "buildId": "build_...",
+  "keyId": "key_...",
+  "runtimeKey": "base64...",
+  "issuedAt": "2026-06-26T12:00:00Z",
+  "expiresAt": "2026-06-27T12:00:00Z",
+  "graceUntil": "2026-07-03T12:00:00Z",
+  "machineFingerprint": "sha256:...",
+  "nonce": "base64...",
+  "signature": "base64..."
+}

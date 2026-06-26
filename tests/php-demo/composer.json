@@ -1,0 +1,16 @@
+{
+  "name": "mmprotect/php-demo",
+  "description": "Demo-Projekt für PHP License Protection Tests",
+  "type": "project",
+  "require": {
+    "php": ">=8.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/App/"
+    }
+  },
+  "scripts": {
+    "smoke": "php tests/smoke.php"
+  }
+}

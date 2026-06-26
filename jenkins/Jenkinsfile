@@ -1,0 +1,38 @@
+pipeline {
+  agent none
+
+  options {
+    timestamps()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+  }
+
+  stages {
+    stage('Linux Build') {
+      agent { label 'linux' }
+      steps {
+        sh 'bash scripts/linux/build-all.sh'
+        sh 'bash scripts/linux/test-all.sh'
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+          junit allowEmptyResults: true, testResults: '**/TestResults/*.xml'
+        }
+      }
+    }
+
+    stage('Windows Build') {
+      agent { label 'windows' }
+      steps {
+        bat 'scripts\\windows\\build-all.cmd'
+        bat 'scripts\\windows\\test-all.cmd'
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+          junit allowEmptyResults: true, testResults: '**/TestResults/*.xml'
+        }
+      }
+    }
+  }
+}

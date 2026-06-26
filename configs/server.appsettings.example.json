@@ -1,0 +1,22 @@
+{
+  "ConnectionStrings": {
+    "MySql": "Server=localhost;Port=3306;Database=mm_license;User=mm_license;Password=change-me;TreatTinyAsBoolean=true;"
+  },
+  "Security": {
+    "Issuer": "MM License Server",
+    "LeaseTtlMinutes": 1440,
+    "GracePeriodDays": 7,
+    "RuntimeRateLimitPerMinute": 60
+  },
+  "Keys": {
+    "VendorSigningPrivateKeyPath": "/etc/mmprotect/vendor_signing_private.pem",
+    "VendorSigningPublicKeyPath": "/etc/mmprotect/vendor_signing_public.pem"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}

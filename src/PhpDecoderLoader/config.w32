@@ -1,0 +1,7 @@
+// Windows PHP SDK build config for MMProtect Loader.
+ARG_ENABLE("mmloader", "Enable MMProtect PHP loader", "no");
+
+if (PHP_MMLOADER != "no") {
+    EXTENSION("mmloader", "mmloader.c");
+    AC_DEFINE("HAVE_MMLOADER", 1, "MMProtect loader enabled");
+}

@@ -1,0 +1,39 @@
+pipeline {
+  agent { label 'windows' }
+
+  options {
+    timestamps()
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Build Server') {
+      steps { bat 'scripts\\windows\\build-server.cmd' }
+    }
+
+    stage('Build Encoder') {
+      steps { bat 'scripts\\windows\\build-encoder.cmd' }
+    }
+
+    stage('Build Decoder') {
+      steps { bat 'scripts\\windows\\build-decoder.cmd' }
+    }
+
+    stage('Tests') {
+      steps { bat 'scripts\\windows\\test-all.cmd' }
+    }
+
+    stage('Package') {
+      steps { bat 'scripts\\windows\\package-release.cmd %BUILD_NUMBER%' }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+    }
+  }
+}

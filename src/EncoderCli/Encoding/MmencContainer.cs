@@ -1,0 +1,109 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace MmProtect.EncoderCli.Encoding;
+
+public sealed class MmencContainer
+{
+    public required byte[] FileBytes { get; init; }
+    public required byte[] Ciphertext { get; init; }
+
+    public static MmencContainer Create(byte[] plain, byte[] fileKey, MmencHeader header)
+    {
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var tag = new byte[16];
+        var cipher = new byte[plain.Length];
+
+        using (var aes = new AesGcm(fileKey, tag.Length))
+        {
+            aes.Encrypt(nonce, plain, cipher, tag);
+        }
+
+        header.Nonce = Convert.ToBase64String(nonce);
+        header.Tag = Convert.ToBase64String(tag);
+        header.CipherHash = "sha256:" + Hashing.Sha256Hex(cipher);
+        header.Signature = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{header.BuildId}:{header.FileId}:{header.CipherHash}")));
+
+        var headerJson = JsonSerializer.Serialize(header, JsonOptions.Compact);
+        var headerBytes = Encoding.UTF8.GetBytes(headerJson);
+        var lengthLine = headerBytes.Length.ToString("D8");
+
+        using var ms = new MemoryStream();
+        ms.Write(Encoding.ASCII.GetBytes("MMENC1\n"));
+        ms.Write(Encoding.ASCII.GetBytes(lengthLine));
+        ms.WriteByte((byte)'\n');
+        ms.Write(headerBytes);
+        ms.Write(cipher);
+
+        return new MmencContainer
+        {
+            FileBytes = ms.ToArray(),
+            Ciphertext = cipher
+        };
+    }
+}
+
+public sealed class MmencHeader
+{
+    public string Format { get; set; } = "MMENC1";
+    public int FormatVersion { get; set; } = 1;
+    public string ProjectId { get; set; } = "";
+    public string CustomerId { get; set; } = "";
+    public string LicenseId { get; set; } = "";
+    public string BuildId { get; set; } = "";
+    public string FileId { get; set; } = "";
+    public string RelativePath { get; set; } = "";
+    public string PathHash { get; set; } = "";
+    public string PlainHash { get; set; } = "";
+    public string CipherHash { get; set; } = "";
+    public string Algorithm { get; set; } = "AES-256-GCM";
+    public string Kdf { get; set; } = "HKDF-SHA256";
+    public string KeyId { get; set; } = "";
+    public string Nonce { get; set; } = "";
+    public string Tag { get; set; } = "";
+    public string ManifestHash { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public string Signature { get; set; } = "";
+}
+
+public sealed record ManifestDto(
+    string Format,
+    string ProjectId,
+    string CustomerId,
+    string LicenseId,
+    string BuildId,
+    string Version,
+    string PhpMinVersion,
+    string Algorithm,
+    string Kdf,
+    List<ManifestFileDto> Files,
+    string ManifestHash,
+    string Signature);
+
+public sealed record ManifestFileDto(
+    string FileId,
+    string RelativePath,
+    string PathHash,
+    string PlainHash,
+    string CipherHash,
+    string Algorithm,
+    string Kdf);
+
+public static class JsonOptions
+{
+    public static readonly JsonSerializerOptions Compact = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        WriteIndented = false
+    };
+
+    public static readonly JsonSerializerOptions Pretty = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+}

@@ -1,0 +1,22 @@
+{
+  "format": "MMENC-MANIFEST-1",
+  "projectId": "proj_demo",
+  "customerId": "cust_demo",
+  "licenseId": "lic_demo",
+  "buildId": "build_demo",
+  "version": "1.0.0",
+  "phpMinVersion": "8.4",
+  "algorithm": "AES-256-GCM",
+  "kdf": "HKDF-SHA256",
+  "files": [
+    {
+      "fileId": "file_app_application",
+      "relativePath": "src/App/Application.php",
+      "pathHash": "sha256:example",
+      "plainHash": "sha256:example",
+      "cipherHash": "sha256:example"
+    }
+  ],
+  "manifestHash": "sha256:example",
+  "signature": "base64..."
+}

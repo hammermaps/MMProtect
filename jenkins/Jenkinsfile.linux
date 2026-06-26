@@ -1,0 +1,39 @@
+pipeline {
+  agent { label 'linux' }
+
+  options {
+    timestamps()
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Build Server') {
+      steps { sh 'bash scripts/linux/build-server.sh' }
+    }
+
+    stage('Build Encoder') {
+      steps { sh 'bash scripts/linux/build-encoder.sh' }
+    }
+
+    stage('Build Decoder') {
+      steps { sh 'bash scripts/linux/build-decoder.sh' }
+    }
+
+    stage('Tests') {
+      steps { sh 'bash scripts/linux/test-all.sh' }
+    }
+
+    stage('Package') {
+      steps { sh 'bash scripts/linux/package-release.sh ${BUILD_NUMBER}' }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+    }
+  }
+}
