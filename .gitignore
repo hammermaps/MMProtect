@@ -45,3 +45,9 @@ appsettings.Development.json
 
 # OS
 .DS_Store
+
+# Admin UI — node_modules and Vite build output (built into wwwroot by script)
+src/AdminUi/node_modules/
+src/AdminUi/dist/
+src/LicenseServer/wwwroot/admin/
+!src/LicenseServer/wwwroot/.gitkeep

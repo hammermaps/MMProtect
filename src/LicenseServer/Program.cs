@@ -138,6 +138,9 @@ if (adminKeys.Length == 0 || adminKeys.All(k => k.Contains("change-me", StringCo
 if (proxyEnabled)
     app.UseForwardedHeaders();
 
+// Serve the embedded Vue Admin UI from wwwroot/admin/
+app.UseStaticFiles();
+
 app.UseRateLimiter();
 
 /* ── Correlation ID ─────────────────────────────────────────────────────── */
@@ -913,6 +916,9 @@ adminApi.MapGet("/audit-log", async (IDbConnectionFactory db, string? entityType
 
     return Results.Ok(new { events = result });
 });
+
+// SPA fallback: any /admin/* path not matched as a static file → serve admin/index.html
+app.MapFallbackToFile("/admin/{**slug}", "admin/index.html");
 
 app.Run();
 
