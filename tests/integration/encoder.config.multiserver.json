@@ -1,0 +1,52 @@
+{
+  "licenseServer": {
+    "baseUrl": "http://127.0.0.1:__SERVER_PORT__",
+    "apiKey": "dev-encoder-api-key-change-me",
+    "timeoutSeconds": 30
+  },
+  "defaults": {
+    "phpMinVersion": "8.4",
+    "algorithm": "AES-256-GCM",
+    "keepPhpExtension": true,
+    "writeManifest": true,
+    "devMode": true,
+    "signing": {
+      "privateKeyFile": "__SIGNING_PRIV__",
+      "publicKeyFile":  "__SIGNING_PUB__"
+    }
+  },
+  "projects": [
+    {
+      "projectKey": "__PROJECT_KEY__",
+      "name": "Multi-Server Test Project (__PROJECT_KEY__)",
+      "version": "1.0.0",
+      "sourceRevision": "multiserver-test",
+      "sourceRoot": "__SOURCE_ROOT__",
+      "outputRoot": "__OUTPUT_ROOT__",
+      "customer": {
+        "externalCustomerRef": "mstest-customer",
+        "name": "Multi-Server Test Customer",
+        "email": "test@example.invalid",
+        "notes": "Created by multi-server integration test"
+      },
+      "license": {
+        "licenseKey": "__LICENSE_KEY__",
+        "validFrom": "2026-01-01T00:00:00Z",
+        "validUntil": "2027-12-31T23:59:59Z",
+        "maxActivations": 5,
+        "features": ["base"]
+      },
+      "include": [
+        "src/**/*.php"
+      ],
+      "exclude": [],
+      "copyPlain": [
+        "public/**",
+        "vendor/**",
+        "composer.json",
+        "composer.lock",
+        "config/**"
+      ]
+    }
+  ]
+}

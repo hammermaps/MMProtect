@@ -82,7 +82,11 @@
       "Bash(ldconfig -p)",
       "Bash(dotnet publish *)",
       "Bash(bash /home/masterbee/Dokumente/GitHub/php-license-protection-agent-pack/tests/php-demo/run-demo-test.sh 2>&1)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(bash tests/integration/run-integration-test.sh)",
+      "Bash(dotnet /home/masterbee/Dokumente/GitHub/php-license-protection-agent-pack/artifacts/encoder/linux-x64/mmencoder.dll encode-dir --help)",
+      "Bash(dotnet /home/masterbee/Dokumente/GitHub/php-license-protection-agent-pack/artifacts/encoder/linux-x64/mmencoder.dll)",
+      "Bash(bash tests/integration/run-multi-server-test.sh 2>&1)"
     ]
   }
 }
