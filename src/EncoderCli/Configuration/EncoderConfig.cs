@@ -52,6 +52,20 @@ public sealed class DefaultOptions
     /// NEVER enable in production — the build key must not leave the server.
     /// </summary>
     public bool DevMode { get; set; } = false;
+    /// <summary>Week 4: ECDSA-P256 signing options. Null = SHA-256 demo hash.</summary>
+    public SigningOptions? Signing { get; set; }
+}
+
+/// <summary>
+/// Week 4: Configuration for ECDSA-P256 file header signing.
+/// The private key file must NOT be committed to version control.
+/// </summary>
+public sealed class SigningOptions
+{
+    /// <summary>Path to PEM-encoded ECDSA-P256 private key file.</summary>
+    public string? PrivateKeyFile { get; set; }
+    /// <summary>Path to PEM-encoded ECDSA-P256 public key file (for loader configuration).</summary>
+    public string? PublicKeyFile { get; set; }
 }
 
 public sealed class ProjectOptions

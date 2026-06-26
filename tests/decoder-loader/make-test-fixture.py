@@ -58,6 +58,8 @@ tag        = ct_with_tag[-16:]
 nonce_b64 = base64.b64encode(nonce).decode()
 tag_b64   = base64.b64encode(tag).decode()
 cipher_hash = "sha256:" + hashlib.sha256(ciphertext).hexdigest()
+sig_data    = f"{BUILD_ID}:{FILE_ID}:{cipher_hash}".encode()
+signature   = base64.b64encode(hashlib.sha256(sig_data).digest()).decode()
 
 # ---- Build JSON header (camelCase, compact, sorted keys) ----
 header_dict = {
@@ -78,7 +80,7 @@ header_dict = {
     "plainHash":   plain_hash,
     "projectId":   PROJECT_ID,
     "relativePath": RELATIVE,
-    "signature":   "dev-sha256-placeholder",
+    "signature":   signature,
     "tag":         tag_b64,
 }
 # Keys already sorted alphabetically above (matches System.Text.Json camelCase)

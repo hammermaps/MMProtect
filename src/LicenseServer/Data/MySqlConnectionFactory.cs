@@ -1,10 +1,12 @@
-using MySqlConnector.MySql;
+using System.Data.Common;
+using MySqlConnector;
 
 namespace MmProtect.LicenseServer.Data;
 
-public sealed class MySqlConnectionFactory
+public sealed class MySqlConnectionFactory : IDbConnectionFactory
 {
     private readonly string _connectionString;
+    public bool IsSqlite => false;
 
     public MySqlConnectionFactory(IConfiguration configuration)
     {
@@ -12,10 +14,10 @@ public sealed class MySqlConnectionFactory
             ?? throw new InvalidOperationException("ConnectionStrings:MySql is missing.");
     }
 
-    public async Task<MySqlConnection> OpenAsync()
+    public async Task<DbConnection> OpenAsync()
     {
-        var connection = new MySqlConnection(_connectionString);
-        await connection.OpenAsync();
-        return connection;
+        var conn = new MySqlConnection(_connectionString);
+        await conn.OpenAsync();
+        return conn;
     }
 }

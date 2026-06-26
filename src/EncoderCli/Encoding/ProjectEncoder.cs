@@ -102,7 +102,8 @@ public sealed class ProjectEncoder
                     KeyId = build.KeyId,
                     ManifestHash = "pending",
                     CreatedAt = DateTimeOffset.UtcNow
-                });
+                },
+                signingKeyFile: config.Defaults.Signing?.PrivateKeyFile);
 
             var outPath = Path.Combine(outputRoot, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);

@@ -62,10 +62,13 @@ plain_php  = b'<?php\necho "MMProtect Demo: protected project code executed\\n";
 nonce      = os.urandom(12)
 ct_tag     = AESGCM(file_key).encrypt(nonce, plain_php, None)
 ciphertext, tag = ct_tag[:-16], ct_tag[-16:]
+cipher_hash = "sha256:" + hashlib.sha256(ciphertext).hexdigest()
+sig_data    = f"{BUILD_ID}:{FILE_ID}:{cipher_hash}".encode()
+signature   = base64.b64encode(hashlib.sha256(sig_data).digest()).decode()
 
 header = {
     "algorithm": "AES-256-GCM", "buildId": BUILD_ID,
-    "cipherHash": "sha256:" + hashlib.sha256(ciphertext).hexdigest(),
+    "cipherHash": cipher_hash,
     "createdAt":  datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     "customerId": "cust_test", "fileId": FILE_ID,
     "format": "MMENC1", "formatVersion": 1,
@@ -74,7 +77,7 @@ header = {
     "pathHash": PATH_HASH,
     "plainHash": "sha256:" + hashlib.sha256(plain_php).hexdigest(),
     "projectId": "proj_test", "relativePath": RELATIVE,
-    "signature": "dev-placeholder", "tag": base64.b64encode(tag).decode(),
+    "signature": signature, "tag": base64.b64encode(tag).decode(),
 }
 hj = json.dumps(header, separators=(',', ':'), ensure_ascii=True).encode()
 container = b"MMENC1\n" + f"{len(hj):08d}".encode() + b"\n" + hj + ciphertext

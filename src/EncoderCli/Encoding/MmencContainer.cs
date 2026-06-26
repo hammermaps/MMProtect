@@ -10,7 +10,15 @@ public sealed class MmencContainer
     public required byte[] FileBytes { get; init; }
     public required byte[] Ciphertext { get; init; }
 
-    public static MmencContainer Create(byte[] plain, byte[] fileKey, MmencHeader header)
+    /// <summary>
+    /// Encrypt <paramref name="plain"/> with AES-256-GCM and assemble an MMENC1 container.
+    /// </summary>
+    /// <param name="signingKeyFile">
+    ///   Week 4: path to ECDSA-P256 PEM private key for header signing.
+    ///   Null = fall back to SHA-256 demo hash (loader accepts both).
+    /// </param>
+    public static MmencContainer Create(byte[] plain, byte[] fileKey, MmencHeader header,
+                                         string? signingKeyFile = null)
     {
         var nonce = RandomNumberGenerator.GetBytes(12);
         var tag = new byte[16];
@@ -24,8 +32,24 @@ public sealed class MmencContainer
         header.Nonce = Convert.ToBase64String(nonce);
         header.Tag = Convert.ToBase64String(tag);
         header.CipherHash = "sha256:" + Hashing.Sha256Hex(cipher);
-        header.Signature = Convert.ToBase64String(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
-            $"{header.BuildId}:{header.FileId}:{header.CipherHash}")));
+
+        var sigData = System.Text.Encoding.UTF8.GetBytes(
+            $"{header.BuildId}:{header.FileId}:{header.CipherHash}");
+
+        if (!string.IsNullOrWhiteSpace(signingKeyFile) && File.Exists(signingKeyFile))
+        {
+            /* Week 4: ECDSA-P256 DER signature (matches loader's EVP_DigestVerify) */
+            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            ecdsa.ImportFromPem(File.ReadAllText(signingKeyFile));
+            var sig = ecdsa.SignData(sigData, HashAlgorithmName.SHA256,
+                                     DSASignatureFormat.Rfc3279DerSequence);
+            header.Signature = Convert.ToBase64String(sig);
+        }
+        else
+        {
+            /* Demo fallback: SHA-256 hash (loader falls back to same when no pubkey configured) */
+            header.Signature = Convert.ToBase64String(SHA256.HashData(sigData));
+        }
 
         var headerJson = JsonSerializer.Serialize(header, JsonOptions.Compact);
         var headerBytes = System.Text.Encoding.UTF8.GetBytes(headerJson);

@@ -2,11 +2,22 @@ using Dapper;
 using MmProtect.LicenseServer.Data;
 using MmProtect.LicenseServer.Models;
 using MmProtect.LicenseServer.Security;
+using System.Data.Common;
 using System.Security.Cryptography;
+
+// Register Dapper DateTime handler so SQLite TEXT dates map to DateTime correctly.
+SqlMapper.AddTypeHandler(new DapperDateTimeHandler());
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton<MySqlConnectionFactory>();
+var dbProvider = builder.Configuration.GetValue<string>("DatabaseProvider", "mysql")!
+                        .ToLowerInvariant();
+
+if (dbProvider == "sqlite")
+    builder.Services.AddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
+else
+    builder.Services.AddSingleton<IDbConnectionFactory, MySqlConnectionFactory>();
+
 builder.Services.AddSingleton<ApiKeyValidator>();
 builder.Services.AddSingleton<CryptoService>();
 builder.Services.AddEndpointsApiExplorer();
@@ -23,16 +34,26 @@ app.MapGet("/health", () => Results.Ok(new
 var encoder = app.MapGroup("/api/v1/encoder");
 encoder.AddEndpointFilter<ApiKeyEndpointFilter>();
 
-encoder.MapPost("/customers/upsert", async (CustomerUpsertRequest request, MySqlConnectionFactory db) =>
+encoder.MapPost("/customers/upsert", async (CustomerUpsertRequest request, IDbConnectionFactory db) =>
 {
     var uid = "cust_" + Ids.NewId();
     await using var conn = await db.OpenAsync();
 
-    await conn.ExecuteAsync("""
-        INSERT INTO customers (customer_uid, external_customer_ref, name, email, notes)
-        VALUES (@Uid, @ExternalCustomerRef, @Name, @Email, @Notes)
-        ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), notes = VALUES(notes), updated_at = CURRENT_TIMESTAMP;
-        """, new { Uid = uid, request.ExternalCustomerRef, request.Name, request.Email, request.Notes });
+    var upsertSql = db.IsSqlite
+        ? """
+          INSERT INTO customers (customer_uid, external_customer_ref, name, email, notes)
+          VALUES (@Uid, @ExternalCustomerRef, @Name, @Email, @Notes)
+          ON CONFLICT(external_customer_ref) DO UPDATE SET
+              name = excluded.name, email = excluded.email, notes = excluded.notes;
+          """
+        : """
+          INSERT INTO customers (customer_uid, external_customer_ref, name, email, notes)
+          VALUES (@Uid, @ExternalCustomerRef, @Name, @Email, @Notes)
+          ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), notes = VALUES(notes), updated_at = CURRENT_TIMESTAMP;
+          """;
+
+    await conn.ExecuteAsync(upsertSql,
+        new { Uid = uid, request.ExternalCustomerRef, request.Name, request.Email, request.Notes });
 
     var customerUid = await conn.ExecuteScalarAsync<string>(
         "SELECT customer_uid FROM customers WHERE external_customer_ref = @ExternalCustomerRef",
@@ -41,16 +62,26 @@ encoder.MapPost("/customers/upsert", async (CustomerUpsertRequest request, MySql
     return Results.Ok(new CustomerUpsertResponse(customerUid, customerUid == uid));
 });
 
-encoder.MapPost("/projects/upsert", async (ProjectUpsertRequest request, MySqlConnectionFactory db) =>
+encoder.MapPost("/projects/upsert", async (ProjectUpsertRequest request, IDbConnectionFactory db) =>
 {
     var uid = "proj_" + Ids.NewId();
     await using var conn = await db.OpenAsync();
 
-    await conn.ExecuteAsync("""
-        INSERT INTO projects (project_uid, project_key, name, php_min_version, description)
-        VALUES (@Uid, @ProjectKey, @Name, @PhpMinVersion, @Description)
-        ON DUPLICATE KEY UPDATE name = VALUES(name), php_min_version = VALUES(php_min_version), description = VALUES(description), updated_at = CURRENT_TIMESTAMP;
-        """, new { Uid = uid, request.ProjectKey, request.Name, request.PhpMinVersion, request.Description });
+    var upsertSql = db.IsSqlite
+        ? """
+          INSERT INTO projects (project_uid, project_key, name, php_min_version, description)
+          VALUES (@Uid, @ProjectKey, @Name, @PhpMinVersion, @Description)
+          ON CONFLICT(project_key) DO UPDATE SET
+              name = excluded.name, php_min_version = excluded.php_min_version, description = excluded.description;
+          """
+        : """
+          INSERT INTO projects (project_uid, project_key, name, php_min_version, description)
+          VALUES (@Uid, @ProjectKey, @Name, @PhpMinVersion, @Description)
+          ON DUPLICATE KEY UPDATE name = VALUES(name), php_min_version = VALUES(php_min_version), description = VALUES(description), updated_at = CURRENT_TIMESTAMP;
+          """;
+
+    await conn.ExecuteAsync(upsertSql,
+        new { Uid = uid, request.ProjectKey, request.Name, request.PhpMinVersion, request.Description });
 
     var projectUid = await conn.ExecuteScalarAsync<string>(
         "SELECT project_uid FROM projects WHERE project_key = @ProjectKey",
@@ -59,7 +90,7 @@ encoder.MapPost("/projects/upsert", async (ProjectUpsertRequest request, MySqlCo
     return Results.Ok(new ProjectUpsertResponse(projectUid, projectUid == uid));
 });
 
-encoder.MapPost("/licenses/upsert", async (LicenseUpsertRequest request, MySqlConnectionFactory db) =>
+encoder.MapPost("/licenses/upsert", async (LicenseUpsertRequest request, IDbConnectionFactory db) =>
 {
     var uid = "lic_" + Ids.NewId();
     await using var conn = await db.OpenAsync();
@@ -67,18 +98,27 @@ encoder.MapPost("/licenses/upsert", async (LicenseUpsertRequest request, MySqlCo
     var customerDbId = await DbLookup.CustomerIdAsync(conn, request.CustomerId);
     var projectDbId = await DbLookup.ProjectIdAsync(conn, request.ProjectId);
 
-    await conn.ExecuteAsync("""
-        INSERT INTO licenses
-            (license_uid, customer_id, project_id, license_key, valid_from, valid_until, max_activations, features, status)
-        VALUES
-            (@Uid, @CustomerDbId, @ProjectDbId, @LicenseKey, @ValidFrom, @ValidUntil, @MaxActivations, @FeaturesJson, 'active')
-        ON DUPLICATE KEY UPDATE
-            valid_from = VALUES(valid_from),
-            valid_until = VALUES(valid_until),
-            max_activations = VALUES(max_activations),
-            features = VALUES(features),
-            updated_at = CURRENT_TIMESTAMP;
-        """, new
+    var upsertSql = db.IsSqlite
+        ? """
+          INSERT INTO licenses
+              (license_uid, customer_id, project_id, license_key, valid_from, valid_until, max_activations, features, status)
+          VALUES
+              (@Uid, @CustomerDbId, @ProjectDbId, @LicenseKey, @ValidFrom, @ValidUntil, @MaxActivations, @FeaturesJson, 'active')
+          ON CONFLICT(license_key) DO UPDATE SET
+              valid_from = excluded.valid_from, valid_until = excluded.valid_until,
+              max_activations = excluded.max_activations, features = excluded.features;
+          """
+        : """
+          INSERT INTO licenses
+              (license_uid, customer_id, project_id, license_key, valid_from, valid_until, max_activations, features, status)
+          VALUES
+              (@Uid, @CustomerDbId, @ProjectDbId, @LicenseKey, @ValidFrom, @ValidUntil, @MaxActivations, @FeaturesJson, 'active')
+          ON DUPLICATE KEY UPDATE
+              valid_from = VALUES(valid_from), valid_until = VALUES(valid_until),
+              max_activations = VALUES(max_activations), features = VALUES(features), updated_at = CURRENT_TIMESTAMP;
+          """;
+
+    await conn.ExecuteAsync(upsertSql, new
     {
         Uid = uid,
         CustomerDbId = customerDbId,
@@ -97,7 +137,7 @@ encoder.MapPost("/licenses/upsert", async (LicenseUpsertRequest request, MySqlCo
     return Results.Ok(new LicenseUpsertResponse(licenseUid, licenseUid == uid));
 });
 
-encoder.MapPost("/builds/start", async (BuildStartRequest request, MySqlConnectionFactory db, CryptoService crypto) =>
+encoder.MapPost("/builds/start", async (BuildStartRequest request, IDbConnectionFactory db, CryptoService crypto) =>
 {
     var buildUid = "build_" + Ids.NewId();
     var keyUid = "key_" + Ids.NewId();
@@ -114,7 +154,7 @@ encoder.MapPost("/builds/start", async (BuildStartRequest request, MySqlConnecti
         VALUES (@KeyUid, 'build', 'AES-256-GCM', @EncryptedSecretKey);
         """, new { KeyUid = keyUid, EncryptedSecretKey = crypto.ProtectForDemoOnly(buildKey) });
 
-    var keyDbId = await conn.ExecuteScalarAsync<ulong>(
+    var keyDbId = await conn.ExecuteScalarAsync<long>(
         "SELECT id FROM crypto_keys WHERE key_uid = @KeyUid", new { KeyUid = keyUid });
 
     await conn.ExecuteAsync("""
@@ -137,26 +177,36 @@ encoder.MapPost("/builds/start", async (BuildStartRequest request, MySqlConnecti
     return Results.Ok(new BuildStartResponse(buildUid, keyUid, buildKey, Convert.ToBase64String(RandomNumberGenerator.GetBytes(16))));
 });
 
-encoder.MapPost("/builds/{buildId}/files", async (string buildId, BuildFilesRequest request, MySqlConnectionFactory db) =>
+encoder.MapPost("/builds/{buildId}/files", async (string buildId, BuildFilesRequest request, IDbConnectionFactory db) =>
 {
     await using var conn = await db.OpenAsync();
     var buildDbId = await DbLookup.BuildIdAsync(conn, buildId);
 
+    var upsertSql = db.IsSqlite
+        ? """
+          INSERT INTO build_files
+              (build_id, file_uid, relative_path, path_hash, plain_hash, cipher_hash, algorithm, kdf)
+          VALUES
+              (@BuildDbId, @FileId, @RelativePath, @PathHash, @PlainHash, @CipherHash, @Algorithm, @Kdf)
+          ON CONFLICT(build_id, file_uid) DO UPDATE SET
+              relative_path = excluded.relative_path, path_hash = excluded.path_hash,
+              plain_hash = excluded.plain_hash, cipher_hash = excluded.cipher_hash,
+              algorithm = excluded.algorithm, kdf = excluded.kdf;
+          """
+        : """
+          INSERT INTO build_files
+              (build_id, file_uid, relative_path, path_hash, plain_hash, cipher_hash, algorithm, kdf)
+          VALUES
+              (@BuildDbId, @FileId, @RelativePath, @PathHash, @PlainHash, @CipherHash, @Algorithm, @Kdf)
+          ON DUPLICATE KEY UPDATE
+              relative_path = VALUES(relative_path), path_hash = VALUES(path_hash),
+              plain_hash = VALUES(plain_hash), cipher_hash = VALUES(cipher_hash),
+              algorithm = VALUES(algorithm), kdf = VALUES(kdf);
+          """;
+
     foreach (var file in request.Files)
     {
-        await conn.ExecuteAsync("""
-            INSERT INTO build_files
-                (build_id, file_uid, relative_path, path_hash, plain_hash, cipher_hash, algorithm, kdf)
-            VALUES
-                (@BuildDbId, @FileId, @RelativePath, @PathHash, @PlainHash, @CipherHash, @Algorithm, @Kdf)
-            ON DUPLICATE KEY UPDATE
-                relative_path = VALUES(relative_path),
-                path_hash = VALUES(path_hash),
-                plain_hash = VALUES(plain_hash),
-                cipher_hash = VALUES(cipher_hash),
-                algorithm = VALUES(algorithm),
-                kdf = VALUES(kdf);
-            """, new
+        await conn.ExecuteAsync(upsertSql, new
         {
             BuildDbId = buildDbId,
             file.FileId,
@@ -176,7 +226,7 @@ encoder.MapPost("/builds/{buildId}/files", async (string buildId, BuildFilesRequ
     return Results.Ok(new { accepted = request.Files.Count, rejected = 0 });
 });
 
-encoder.MapPost("/builds/{buildId}/manifest/sign", async (string buildId, ManifestSignRequest request, MySqlConnectionFactory db, CryptoService crypto) =>
+encoder.MapPost("/builds/{buildId}/manifest/sign", async (string buildId, ManifestSignRequest request, IDbConnectionFactory db, CryptoService crypto) =>
 {
     await using var conn = await db.OpenAsync();
     var signature = crypto.SignForDemoOnly(request.ManifestHash);
@@ -194,18 +244,18 @@ encoder.MapPost("/builds/{buildId}/manifest/sign", async (string buildId, Manife
     return Results.Ok(new ManifestSignResponse(signature, "dev-demo-key", DateTimeOffset.UtcNow));
 });
 
-app.MapPost("/api/v1/runtime/lease", async (RuntimeLeaseRequest request, MySqlConnectionFactory db, CryptoService crypto, IConfiguration config) =>
+app.MapPost("/api/v1/runtime/lease", async (RuntimeLeaseRequest request, IDbConnectionFactory db, CryptoService crypto, IConfiguration config) =>
 {
     await using var conn = await db.OpenAsync();
 
-    var row = await conn.QuerySingleOrDefaultAsync<dynamic>("""
+    var row = await conn.QuerySingleOrDefaultAsync<LeaseQueryRow>("""
         SELECT
-            l.id AS LicenseDbId,
-            b.id AS BuildDbId,
+            l.id               AS LicenseDbId,
+            b.id               AS BuildDbId,
             k.encrypted_secret_key AS EncryptedSecretKey,
-            l.status AS LicenseStatus,
-            l.valid_until AS ValidUntil,
-            l.max_activations AS MaxActivations
+            l.status           AS LicenseStatus,
+            l.valid_until      AS ValidUntil,
+            l.max_activations  AS MaxActivations
         FROM licenses l
         JOIN builds b ON b.license_id = l.id
         JOIN crypto_keys k ON b.key_id = k.id
@@ -218,28 +268,38 @@ app.MapPost("/api/v1/runtime/lease", async (RuntimeLeaseRequest request, MySqlCo
     if (row is null)
         return Results.BadRequest(ErrorDto.Create("LEASE_DENIED", "License, build or manifest invalid."));
 
-    if ((string)row.LicenseStatus != "active")
+    if (row.LicenseStatus != "active")
         return Results.BadRequest(ErrorDto.Create("LICENSE_REVOKED", "License is not active."));
 
-    if (row.ValidUntil is not null && (DateTime)row.ValidUntil < DateTime.UtcNow)
+    if (row.ValidUntil.HasValue && row.ValidUntil.Value < DateTime.UtcNow)
         return Results.BadRequest(ErrorDto.Create("LICENSE_EXPIRED", "License is expired."));
 
     var activationUid = "act_" + Ids.NewId();
-    await conn.ExecuteAsync("""
-        INSERT INTO license_activations (activation_uid, license_id, machine_fingerprint, last_seen_at)
-        VALUES (@ActivationUid, @LicenseDbId, @MachineFingerprint, CURRENT_TIMESTAMP)
-        ON DUPLICATE KEY UPDATE last_seen_at = CURRENT_TIMESTAMP;
-        """, new { ActivationUid = activationUid, LicenseDbId = (ulong)row.LicenseDbId, request.MachineFingerprint });
 
-    var activationDbId = await conn.ExecuteScalarAsync<ulong>("""
+    var activationUpsertSql = db.IsSqlite
+        ? """
+          INSERT INTO license_activations (activation_uid, license_id, machine_fingerprint, last_seen_at)
+          VALUES (@ActivationUid, @LicenseDbId, @MachineFingerprint, CURRENT_TIMESTAMP)
+          ON CONFLICT(license_id, machine_fingerprint) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP;
+          """
+        : """
+          INSERT INTO license_activations (activation_uid, license_id, machine_fingerprint, last_seen_at)
+          VALUES (@ActivationUid, @LicenseDbId, @MachineFingerprint, CURRENT_TIMESTAMP)
+          ON DUPLICATE KEY UPDATE last_seen_at = CURRENT_TIMESTAMP;
+          """;
+
+    await conn.ExecuteAsync(activationUpsertSql,
+        new { ActivationUid = activationUid, LicenseDbId = row.LicenseDbId, request.MachineFingerprint });
+
+    var activationDbId = await conn.ExecuteScalarAsync<long>("""
         SELECT id FROM license_activations
         WHERE license_id = @LicenseDbId AND machine_fingerprint = @MachineFingerprint
-        """, new { LicenseDbId = (ulong)row.LicenseDbId, request.MachineFingerprint });
+        """, new { LicenseDbId = row.LicenseDbId, request.MachineFingerprint });
 
     var activeCount = await conn.ExecuteScalarAsync<int>("""
         SELECT COUNT(*) FROM license_activations
         WHERE license_id = @LicenseDbId AND status = 'active'
-        """, new { LicenseDbId = (ulong)row.LicenseDbId });
+        """, new { LicenseDbId = row.LicenseDbId });
 
     if (activeCount > (int)row.MaxActivations)
         return Results.BadRequest(ErrorDto.Create("ACTIVATION_LIMIT_REACHED", "Activation limit reached."));
@@ -259,8 +319,8 @@ app.MapPost("/api/v1/runtime/lease", async (RuntimeLeaseRequest request, MySqlCo
         """, new
     {
         LeaseUid = leaseUid,
-        LicenseDbId = (ulong)row.LicenseDbId,
-        BuildDbId = (ulong)row.BuildDbId,
+        LicenseDbId = row.LicenseDbId,
+        BuildDbId = row.BuildDbId,
         ActivationDbId = activationDbId,
         request.Nonce,
         IssuedAt = issuedAt.UtcDateTime,
@@ -268,7 +328,7 @@ app.MapPost("/api/v1/runtime/lease", async (RuntimeLeaseRequest request, MySqlCo
         GraceUntil = graceUntil.UtcDateTime
     });
 
-    var runtimeKey = crypto.UnprotectForDemoOnly((string)row.EncryptedSecretKey);
+    var runtimeKey = crypto.UnprotectForDemoOnly(row.EncryptedSecretKey);
     var signature = crypto.SignForDemoOnly($"{leaseUid}:{request.BuildId}:{request.MachineFingerprint}:{expiresAt:O}");
 
     return Results.Ok(new RuntimeLeaseResponse(
@@ -287,5 +347,29 @@ app.MapPost("/api/v1/runtime/lease", async (RuntimeLeaseRequest request, MySqlCo
 });
 
 app.Run();
+
+// Typed query result for the runtime lease endpoint.
+// Must be a class with property setters (not a record) so Dapper uses property-level
+// type handlers (e.g. DapperDateTimeHandler) rather than constructor injection.
+file sealed class LeaseQueryRow
+{
+    public long LicenseDbId { get; set; }
+    public long BuildDbId { get; set; }
+    public string EncryptedSecretKey { get; set; } = "";
+    public string LicenseStatus { get; set; } = "";
+    public DateTime? ValidUntil { get; set; }
+    public long MaxActivations { get; set; }
+}
+
+// Dapper type handler so SQLite TEXT datetime columns map to DateTime correctly.
+file sealed class DapperDateTimeHandler : SqlMapper.TypeHandler<DateTime>
+{
+    public override void SetValue(System.Data.IDbDataParameter parameter, DateTime value)
+        => parameter.Value = value.ToString("yyyy-MM-dd HH:mm:ss");
+
+    public override DateTime Parse(object value)
+        => DateTime.Parse(value.ToString()!, null,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+}
 
 public partial class Program { }
