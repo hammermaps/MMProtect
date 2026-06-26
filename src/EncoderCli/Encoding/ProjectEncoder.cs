@@ -132,6 +132,8 @@ public sealed class ProjectEncoder
                     Algorithm = config.Defaults.Algorithm,
                     Compression = string.IsNullOrWhiteSpace(config.Defaults.Compression) || config.Defaults.Compression == "none"
                         ? null : config.Defaults.Compression,
+                    LicenseServer = string.IsNullOrWhiteSpace(config.LicenseServer.BaseUrl)
+                        ? null : config.LicenseServer.BaseUrl.TrimEnd('/'),
                     Kdf = "HKDF-SHA256",
                     KeyId = build.KeyId,
                     ManifestHash = "pending",

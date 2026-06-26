@@ -16,6 +16,7 @@
 #    12. LZ4-Komprimierung: Header-Feld prüfen ("compression":"lz4")
 #    13. LZ4-komprimierte Dateien ausführen (Dev-Modus)
 #    14. LZ4 + OPcache
+#    15. licenseServer-URL im MMENC1-Header einbetten (--license-server)
 # =============================================================================
 set -uo pipefail
 
@@ -40,10 +41,10 @@ fail() { echo -e "  ${RED}[FAIL]${NC} $1"; ((FAIL++)); }
 skip() { echo -e "  ${YELLOW}[SKIP]${NC} $1"; ((SKIP++)); }
 sep()  { echo ""; echo "── $1 ──────────────────────────────────────────────"; }
 
-# Liest das "compression"-Feld aus einem MMENC1-Header-JSON.
-# Gibt den Feldwert aus oder einen leeren String wenn das Feld fehlt.
-mmenc1_compression() {
-  python3 - "$1" << 'PYEOF'
+# Liest ein beliebiges Feld aus einem MMENC1-Header-JSON.
+# Aufruf: mmenc1_header_field <datei> <feldname>
+mmenc1_header_field() {
+  python3 - "$1" "$2" << 'PYEOF'
 import sys, json
 try:
     with open(sys.argv[1], 'rb') as f:
@@ -51,12 +52,13 @@ try:
         hlen = int(f.read(8)) # 8-digit ASCII decimal header length
         f.read(1)             # \n
         h = json.loads(f.read(hlen))
-    print(h.get("compression", ""))
+    print(h.get(sys.argv[2], ""))
 except Exception as e:
     print("ERROR:" + str(e), file=sys.stderr)
     sys.exit(1)
 PYEOF
 }
+mmenc1_compression() { mmenc1_header_field "$1" "compression"; }
 
 cleanup() { rm -rf "$OUT_DIR"; }
 trap cleanup EXIT
@@ -412,6 +414,55 @@ if echo "$RESULT" | grep -q "protected project code executed"; then
   pass "LZ4 + OPcache: PHP 8.4 OK"
 else
   fail "LZ4 + OPcache fehlgeschlagen: $RESULT"
+fi
+
+# ── Test 15: licenseServer-URL im MMENC1-Header ───────────────────────────
+sep "Test 15: licenseServer-URL im MMENC1-Header (--license-server)"
+
+LS_DIR="$OUT_DIR/ls_embed"
+LS_URL="https://license.example.com"
+dotnet "$ENCODER_DLL" encode-dir \
+  --source "$DEMO_DIR" \
+  --output "$LS_DIR" \
+  --dev \
+  --license-server "$LS_URL" \
+  2>&1 | grep -v "^$" || true
+
+LS_FILE="$LS_DIR/src/App/Application.php"
+LS_KEY="$LS_DIR/.mmprotect/dev-buildkey.b64"
+
+if [[ -f "$LS_KEY" ]]; then
+  pass "licenseServer: dev-buildkey.b64 erzeugt"
+else
+  fail "licenseServer: dev-buildkey.b64 fehlt"
+fi
+
+LS_FIELD=$(mmenc1_header_field "$LS_FILE" "licenseServer" 2>/dev/null || echo "ERROR")
+if [[ "$LS_FIELD" == "$LS_URL" ]]; then
+  pass "licenseServer: Header-Feld licenseServer=\"$LS_URL\" korrekt"
+else
+  fail "licenseServer: Header-Feld falsch: '$LS_FIELD' (erwartet '$LS_URL')"
+fi
+
+# Verify absent when --license-server not given (use $ENCODED_DIR from earlier)
+LS_ABSENT=$(mmenc1_header_field "$ENCODED_DIR/src/App/Application.php" "licenseServer" 2>/dev/null || echo "ERROR")
+if [[ -z "$LS_ABSENT" ]]; then
+  pass "licenseServer: Feld fehlt korrekt wenn --license-server nicht angegeben"
+else
+  fail "licenseServer: Feld unerwartet vorhanden: '$LS_ABSENT'"
+fi
+
+# Decode still works (dev_mode — server_override path in decoder)
+LS_RESULT=$("$PHP84" \
+    -d "extension=$LOADER_SO" \
+    -d "mmloader.dev_mode=1" \
+    -d "mmloader.dev_buildkey=$LS_KEY" \
+    "$LS_DIR/public/index.php" 2>&1) || true
+
+if echo "$LS_RESULT" | grep -q "protected project code executed"; then
+  pass "licenseServer: PHP 8.4 Ausführung mit eingebetteter URL erfolgreich"
+else
+  fail "licenseServer: PHP 8.4 Ausführung fehlgeschlagen: $LS_RESULT"
 fi
 
 # ── Ergebnis ───────────────────────────────────────────────────────────────

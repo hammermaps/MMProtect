@@ -17,6 +17,8 @@ public sealed class CliArgs
     public bool DevMode { get; private set; }
     /// <summary>Compression algorithm: null/"none" = off, "lz4" = LZ4 block (HC).</summary>
     public string? Compress { get; private set; }
+    /// <summary>License server base URL embedded into each encoded file header.</summary>
+    public string? LicenseServerUrl { get; private set; }
 
     public static CliArgs Parse(string[] args)
     {
@@ -56,6 +58,9 @@ public sealed class CliArgs
                 case "--compress":
                     result.Compress = args[++i].Trim().ToLowerInvariant();
                     break;
+                case "--license-server":
+                    result.LicenseServerUrl = args[++i].Trim();
+                    break;
                 case "--verbose":
                 case "-v":
                     result.Verbose = true;
@@ -91,6 +96,9 @@ public sealed class CliArgs
           --mmignore <file>    Globale .mmignore-Datei (gilt vor verzeichnislokalen Dateien).
           --compress lz4       LZ4-Komprimierung vor AES-256-GCM (spart Speicherplatz bei großem PHP-Code).
           --compress none      Keine Komprimierung (Standard).
+          --license-server <url>  License-Server-URL direkt in jede kodierte Datei einbetten.
+                               Überschreibt mmloader.license_server (INI) pro Datei.
+                               Ermöglicht mehrere Lizenzserver auf einer PHP-Instanz.
           --dry-run            Nur anzeigen, was passieren würde. Nichts schreiben.
 
         .mmignore-Format (in jedem Quellverzeichnis):

@@ -107,6 +107,13 @@ public sealed class MmencHeader
     /// <summary>Optional compression before encryption. Null/absent = no compression. "lz4" = LZ4 block.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Compression { get; set; }
+    /// <summary>
+    /// License server base URL embedded per-file (e.g. "https://license.example.com").
+    /// The loader uses this URL instead of the global mmloader.license_server INI setting.
+    /// Null/absent = fall back to INI. Allows multiple license servers on one PHP instance.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LicenseServer { get; set; }
     public string Kdf { get; set; } = "HKDF-SHA256";
     public string KeyId { get; set; } = "";
     public string Nonce { get; set; } = "";

@@ -75,7 +75,8 @@ try
                 await localEncoder.EncodeAsync(
                     sourceDir, outputDir, mmIgnore, signing,
                     cli.Verbose, cli.DryRun,
-                    compression: cli.Compress);
+                    compression: cli.Compress,
+                    licenseServerUrl: cli.LicenseServerUrl);
             }
             else
             {
@@ -94,6 +95,10 @@ try
                 // --compress CLI flag overrides config value
                 if (cli.Compress != null)
                     config.Defaults.Compression = cli.Compress;
+
+                // --license-server CLI flag overrides the config URL embedded in headers
+                if (cli.LicenseServerUrl != null)
+                    config.LicenseServer.BaseUrl = cli.LicenseServerUrl;
 
                 var apiKey = config.LicenseServer.ResolveApiKey();
                 using var http = new HttpClient

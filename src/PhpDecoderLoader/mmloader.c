@@ -626,12 +626,15 @@ static time_t mmloader_parse_iso8601(const char *ts)
 }
 
 static int mmloader_post_lease(const char *body, const char *build_id,
-                                unsigned char *key_out)
+                                unsigned char *key_out,
+                                const char *server_override)
 {
     CURL *curl = MMLOADER_G(curl_handle);
     if (!curl) return 0;
 
-    const char *server = MMLOADER_G(license_server);
+    /* Header-embedded URL takes priority over global INI setting */
+    const char *server = (server_override && server_override[0])
+        ? server_override : MMLOADER_G(license_server);
     size_t url_len = strlen(server) + strlen("/api/v1/runtime/lease") + 1;
     char *url = emalloc(url_len);
     snprintf(url, url_len, "%s/api/v1/runtime/lease", server);
@@ -765,7 +768,8 @@ static int mmloader_read_dev_buildkey(unsigned char *key_out)
     return ok;
 }
 
-static int mmloader_fetch_lease(const char *build_id, unsigned char *key_out)
+static int mmloader_fetch_lease(const char *build_id, unsigned char *key_out,
+                                 const char *server_override)
 {
     cJSON *lic = NULL, *mf = NULL;
     char  *body = NULL;
@@ -802,7 +806,7 @@ static int mmloader_fetch_lease(const char *build_id, unsigned char *key_out)
     cJSON_Delete(req);
     if (!body) goto done;
 
-    ok = mmloader_post_lease(body, build_id, key_out);
+    ok = mmloader_post_lease(body, build_id, key_out, server_override);
 
 done:
     if (body) free(body);
@@ -812,7 +816,8 @@ done:
 }
 
 static int mmloader_get_or_fetch_runtime_key(const char *build_id,
-                                              unsigned char *key_out)
+                                              unsigned char *key_out,
+                                              const char *server_override)
 {
     time_t now = time(NULL);
 
@@ -831,9 +836,10 @@ static int mmloader_get_or_fetch_runtime_key(const char *build_id,
     int have_disk_cache = mmloader_cache_read(build_id, disk_key, &disk_expires, &disk_grace);
 
     /* 3. HTTP lease */
-    const char *server = MMLOADER_G(license_server);
+    const char *server = (server_override && server_override[0])
+        ? server_override : MMLOADER_G(license_server);
     if (server && server[0]) {
-        if (mmloader_fetch_lease(build_id, key_out)) {
+        if (mmloader_fetch_lease(build_id, key_out, server_override)) {
             ZEND_SECURE_ZERO(disk_key, sizeof(disk_key));
             return 1;
         }
@@ -1050,9 +1056,13 @@ static zend_string *mmloader_decrypt_from_fp(FILE *fp, const char *filename)
     cJSON *j_nonce    = cJSON_GetObjectItemCaseSensitive(root, "nonce");
     cJSON *j_tag      = cJSON_GetObjectItemCaseSensitive(root, "tag");
     cJSON *j_algo     = cJSON_GetObjectItemCaseSensitive(root, "algorithm");
-    cJSON *j_comp     = cJSON_GetObjectItemCaseSensitive(root, "compression");
-    int    use_lz4    = (cJSON_IsString(j_comp) &&
-                         strcmp(j_comp->valuestring, "lz4") == 0) ? 1 : 0;
+    cJSON *j_comp          = cJSON_GetObjectItemCaseSensitive(root, "compression");
+    int    use_lz4         = (cJSON_IsString(j_comp) &&
+                              strcmp(j_comp->valuestring, "lz4") == 0) ? 1 : 0;
+    cJSON *j_licenseServer = cJSON_GetObjectItemCaseSensitive(root, "licenseServer");
+    const char *server_override = (cJSON_IsString(j_licenseServer) &&
+                                   j_licenseServer->valuestring[0])
+        ? j_licenseServer->valuestring : NULL;
 
     if (!cJSON_IsString(j_buildId)  || !cJSON_IsString(j_fileId) ||
         !cJSON_IsString(j_pathHash) || !cJSON_IsString(j_nonce)  ||
@@ -1089,7 +1099,8 @@ static zend_string *mmloader_decrypt_from_fp(FILE *fp, const char *filename)
              j_buildId->valuestring, j_fileId->valuestring, j_pathHash->valuestring);
 
     unsigned char build_key[32];
-    if (!mmloader_get_or_fetch_runtime_key(j_buildId->valuestring, build_key)) {
+    if (!mmloader_get_or_fetch_runtime_key(j_buildId->valuestring, build_key,
+                                           server_override)) {
         ZEND_SECURE_ZERO(info, info_len);
         efree(info); info = NULL;
         goto cleanup;

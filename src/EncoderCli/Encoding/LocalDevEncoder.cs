@@ -19,7 +19,8 @@ public sealed class LocalDevEncoder
         SigningOptions? signing,
         bool verbose,
         bool dryRun,
-        string? compression = null)
+        string? compression = null,
+        string? licenseServerUrl = null)
     {
         sourceRoot = Path.GetFullPath(sourceRoot);
         outputRoot = Path.GetFullPath(outputRoot);
@@ -93,6 +94,8 @@ public sealed class LocalDevEncoder
                     Algorithm = "AES-256-GCM",
                     Compression = string.IsNullOrWhiteSpace(compression) || compression == "none"
                         ? null : compression,
+                    LicenseServer = string.IsNullOrWhiteSpace(licenseServerUrl)
+                        ? null : licenseServerUrl.TrimEnd('/'),
                     Kdf = "HKDF-SHA256",
                     KeyId = keyId,
                     ManifestHash = "pending",

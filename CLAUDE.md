@@ -41,7 +41,9 @@ Offset  Größe   Inhalt
 
 Pflichtfelder: `projectId`, `customerId`, `licenseId`, `buildId`, `fileId`, `relativePath`, `pathHash`, `plainHash`, `cipherHash`, `algorithm`, `kdf`, `nonce`, `tag`, `manifestHash`, `signature`.
 
-Optionale Felder: `compression` (`"lz4"` oder weggelassen = keine Komprimierung). Rückwärtskompatibel: fehlendes Feld bedeutet unkomprimiert.
+Optionale Felder:
+- `compression`: `"lz4"` oder weggelassen = keine Komprimierung. Rückwärtskompatibel: fehlendes Feld bedeutet unkomprimiert.
+- `licenseServer`: Basis-URL des zuständigen License Servers (z.B. `"https://license.example.com"`), oder weggelassen = INI-Fallback (`mmloader.license_server`). Ermöglicht mehrere Lizenzserver auf einer PHP-Instanz. Feld wird nicht signiert (Manipulation kann nur zu Lease-Fehler führen, kein Key-Leak).
 
 **Signaturumfang:** `buildId + ":" + fileId + ":" + cipherHash` (ECDSA-P256 DER, SHA-256). Nicht nur den Header signieren – sonst ist der Ciphertext austauschbar.
 
@@ -145,6 +147,7 @@ PHP require src/App/Application.php
   → Header lesen, ECDSA-P256-Signatur prüfen
   → manifest.json + license.json lesen
   → Machine Fingerprint berechnen (/etc/machine-id + hostname)
+  → Server-URL bestimmen: header.licenseServer > INI mmloader.license_server
   → POST /api/v1/runtime/lease senden
   → Server prüft Lizenz, Aktivierungen, Revocation, Ablauf
   → Server antwortet mit signierter Lease + runtimeKey (= buildKey)
@@ -485,8 +488,9 @@ scripts/linux/build-decoder-php85.sh
 | 12 | LZ4: Header-Feld `"compression":"lz4"` + Rückwärtskompatibilität | ✓ |
 | 13 | LZ4: Ausführung + Smoke-Test (PHP 8.4, Dev-Modus) | ✓ |
 | 14 | LZ4 + OPcache (PHP 8.4) | ✓ |
+| 15 | `licenseServer`-URL im MMENC1-Header (`--license-server`) | ✓ |
 
-**Ergebnis:** 27/27 bestanden, 1 Skip (PHP 8.5)
+**Ergebnis:** 31/31 bestanden, 1 Skip (PHP 8.5)
 
 ---
 
@@ -500,4 +504,4 @@ scripts/linux/build-decoder-php85.sh
 | LicenseServer.Tests | 5/5 echte Integrationstests | Mehr Fehlerpfad-Tests (abgelaufene Lizenz, Revocation) |
 | EncoderCli.Tests | 40/40 (Glob + MmIgnore + Compression) | – |
 | E2E-Integrationstest | 7/7 (PHP 8.5 skip) | PHP 8.5: `sudo apt install php8.5-dev` + build |
-| Demo-Projekt-Tests | 27/27 (PHP 8.5 skip) | PHP 8.5: siehe oben |
+| Demo-Projekt-Tests | 31/31 (PHP 8.5 skip) | PHP 8.5: siehe oben |
