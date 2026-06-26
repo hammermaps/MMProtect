@@ -1,3 +1,4 @@
+using MmProtect.EncoderCli;
 using MmProtect.EncoderCli.Configuration;
 using MmProtect.EncoderCli.Encoding;
 using MmProtect.EncoderCli.Server;

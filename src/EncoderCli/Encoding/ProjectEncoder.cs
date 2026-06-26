@@ -180,6 +180,15 @@ public sealed class ProjectEncoder
                 features = project.License.Features
             }, JsonOptions.Pretty));
 
+        if (config.Defaults.DevMode)
+        {
+            // Week-1 loader smoke-test: write buildKey so the loader can decrypt
+            // without an HTTP lease call. NEVER enable in production.
+            var devKeyPath = Path.Combine(protectDir, "dev-buildkey.b64");
+            await File.WriteAllTextAsync(devKeyPath, build.BuildKey + "\n");
+            Console.WriteLine($"[DEV] dev-buildkey.b64 geschrieben → {devKeyPath}");
+        }
+
         Console.WriteLine($"Fertig. Geschützte Dateien: {manifestFiles.Count}");
     }
 

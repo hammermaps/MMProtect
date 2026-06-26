@@ -8,7 +8,8 @@
     "phpMinVersion": "8.4",
     "algorithm": "AES-256-GCM",
     "keepPhpExtension": true,
-    "writeManifest": true
+    "writeManifest": true,
+    "devMode": true
   },
   "projects": [
     {

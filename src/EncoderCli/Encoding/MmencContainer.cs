@@ -24,16 +24,16 @@ public sealed class MmencContainer
         header.Nonce = Convert.ToBase64String(nonce);
         header.Tag = Convert.ToBase64String(tag);
         header.CipherHash = "sha256:" + Hashing.Sha256Hex(cipher);
-        header.Signature = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(
+        header.Signature = Convert.ToBase64String(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
             $"{header.BuildId}:{header.FileId}:{header.CipherHash}")));
 
         var headerJson = JsonSerializer.Serialize(header, JsonOptions.Compact);
-        var headerBytes = Encoding.UTF8.GetBytes(headerJson);
+        var headerBytes = System.Text.Encoding.UTF8.GetBytes(headerJson);
         var lengthLine = headerBytes.Length.ToString("D8");
 
         using var ms = new MemoryStream();
-        ms.Write(Encoding.ASCII.GetBytes("MMENC1\n"));
-        ms.Write(Encoding.ASCII.GetBytes(lengthLine));
+        ms.Write(System.Text.Encoding.ASCII.GetBytes("MMENC1\n"));
+        ms.Write(System.Text.Encoding.ASCII.GetBytes(lengthLine));
         ms.WriteByte((byte)'\n');
         ms.Write(headerBytes);
         ms.Write(cipher);

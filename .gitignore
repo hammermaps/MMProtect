@@ -1,0 +1,47 @@
+# Build outputs
+artifacts/
+src/EncoderCli/bin/
+src/EncoderCli/obj/
+src/LicenseServer/bin/
+src/LicenseServer/obj/
+
+# phpize / C extension build system
+src/PhpDecoderLoader/.libs/
+src/PhpDecoderLoader/Makefile
+src/PhpDecoderLoader/Makefile.fragments
+src/PhpDecoderLoader/Makefile.objects
+src/PhpDecoderLoader/autom4te.cache/
+src/PhpDecoderLoader/build/
+src/PhpDecoderLoader/config.guess
+src/PhpDecoderLoader/config.h
+src/PhpDecoderLoader/config.h.in
+src/PhpDecoderLoader/config.log
+src/PhpDecoderLoader/config.nice
+src/PhpDecoderLoader/config.status
+src/PhpDecoderLoader/config.sub
+src/PhpDecoderLoader/configure
+src/PhpDecoderLoader/configure.ac
+src/PhpDecoderLoader/libtool
+src/PhpDecoderLoader/ltmain.sh
+src/PhpDecoderLoader/missing
+src/PhpDecoderLoader/mkinstalldirs
+src/PhpDecoderLoader/modules/
+src/PhpDecoderLoader/run-tests.php
+src/PhpDecoderLoader/*.dep
+src/PhpDecoderLoader/*.la
+src/PhpDecoderLoader/*.lo
+src/PhpDecoderLoader/vendor/cjson/*.dep
+src/PhpDecoderLoader/vendor/cjson/*.lo
+
+# Secrets — never commit
+*.env
+appsettings.Development.json
+**/dev-buildkey.b64
+
+# IDE
+.idea/
+.vscode/
+*.user
+
+# OS
+.DS_Store

@@ -46,6 +46,12 @@ public sealed class DefaultOptions
     public string Algorithm { get; set; } = "AES-256-GCM";
     public bool KeepPhpExtension { get; set; } = true;
     public bool WriteManifest { get; set; } = true;
+    /// <summary>
+    /// When true, writes the raw buildKey as Base64 to .mmprotect/dev-buildkey.b64
+    /// so the Week-1 loader can decrypt without an HTTP lease call.
+    /// NEVER enable in production — the build key must not leave the server.
+    /// </summary>
+    public bool DevMode { get; set; } = false;
 }
 
 public sealed class ProjectOptions
