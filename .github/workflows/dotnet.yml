@@ -134,9 +134,15 @@ jobs:
 
       - name: Smoke-test extension
         run: |
+          # Release builds require a signing public key. Generate a throw-away
+          # ECDSA-P256 pair for CI — the key is never used to sign anything.
+          openssl ecparam -name prime256v1 -genkey -noout -out /tmp/ci-signing.pem
+          openssl ec -in /tmp/ci-signing.pem -pubout -out /tmp/ci-signing-public.pem
           ${{ matrix.php_bin }} \
             -d extension=artifacts/decoder/linux-x64/${{ matrix.so_name }} \
+            -d mmloader.signing_public_key_file=/tmp/ci-signing-public.pem \
             -r 'echo extension_loaded("mmloader") ? "mmloader OK\n" : "FAIL\n";'
+          rm -f /tmp/ci-signing.pem /tmp/ci-signing-public.pem
 
       - name: Upload – Decoder PHP ${{ matrix.php }}
         uses: actions/upload-artifact@v4

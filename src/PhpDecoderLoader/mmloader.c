@@ -1554,8 +1554,12 @@ PHP_FUNCTION(mmprotect_has_feature)
     RETURN_BOOL(zend_hash_str_exists(MMLOADER_G(lease_features), feature, feature_len));
 }
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_mmprotect_has_feature, 0, 1, _IS_BOOL, 0)
+    ZEND_ARG_TYPE_INFO(0, feature, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry mmloader_functions[] = {
-    PHP_FE(mmprotect_has_feature, NULL)
+    PHP_FE(mmprotect_has_feature, arginfo_mmprotect_has_feature)
     PHP_FE_END
 };
 
