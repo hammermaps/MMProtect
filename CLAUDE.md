@@ -111,6 +111,7 @@ repo/
 │  ├─ 05-build-test-jenkins.md
 │  ├─ 06-api-contract.md
 │  ├─ operator-guide.md          ← Serverbetreiber-Dokumentation
+│  ├─ docker-deployment.md       ← Docker: Port, DB, API-Keys, KEK, Signing-Key
 │  ├─ proxy-setup.md             ← Reverse-Proxy / Load-Balancer-Setup + Rate-Limiting
 │  ├─ encryption-format.md       ← Verschlüsselungsformat-Referenz
 │  ├─ build-guide.md             ← Build-Anleitung für alle Komponenten
@@ -602,7 +603,7 @@ scripts/linux/build-decoder-php85.sh
 | License Server | Produktionsbereit | `Security:KeyEncryptionKey` + `SigningPrivateKeyFile` setzen; Canonical-JSON |
 | Encoder CLI | Vollständig lauffähig | ManifestHash-Update nach Encoding-Durchlauf |
 | PHP Decoder/Loader | Vollständig implementiert | – |
-| Docker / Compose | `Dockerfile` + `docker-compose.yml` vorhanden | Signing-Key als Secret mounten |
+| Docker / Compose | Produktionsbereit — alle Parameter per Env-Var konfigurierbar | – |
 | LicenseServer.Tests | 41/41 (33 SmokeTests + 8 CryptoTests) | – |
 | EncoderCli.Tests | 57/57 (Glob + MmIgnore + Compression + Obfuscator) | – |
 | E2E-Integrationstest | 7/7 (PHP 8.5 skip) | PHP 8.5: `sudo apt install php8.5-dev` + build |

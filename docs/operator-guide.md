@@ -50,6 +50,48 @@ sudo chown -R mmprotect:mmprotect /opt/mmprotect
 
 ---
 
+## Docker Deployment
+
+The recommended way to run the license server in production. All security-sensitive parameters are passed as environment variables — no config files inside the container.
+
+See **[`docs/docker-deployment.md`](docker-deployment.md)** for the complete Docker reference including:
+- SQLite quickstart (single container)
+- MySQL quickstart (with managed database)
+- Full environment variable reference (port, DB, API keys, KEK, signing key)
+- `docker run` examples without Compose
+- Production checklist
+
+**Quick reference — start with SQLite:**
+
+```bash
+cp .env.example .env && chmod 600 .env
+# Set MMPROTECT_ENCODER_API_KEY_0, MMPROTECT_ADMIN_API_KEY_0, MMPROTECT_KEK in .env
+docker compose -f docker-compose.sqlite.yml up -d
+curl http://localhost:8080/health
+```
+
+**Quick reference — start with MySQL:**
+
+```bash
+cp .env.example .env && chmod 600 .env
+# Set MySQL passwords, API keys, KEK, and optionally MMPROTECT_SIGNING_KEY_HOST_PATH in .env
+docker compose up -d
+curl http://localhost:8080/health
+```
+
+**Key environment variables:**
+
+| Variable | Required | Description |
+|---|---|---|
+| `MMPROTECT_PORT` | No | Host + container port (default: `8080`) |
+| `MMPROTECT_DB_PROVIDER` | No | `mysql` or `sqlite` |
+| `MMPROTECT_ENCODER_API_KEY_0` | **Yes** | Encoder Bearer token |
+| `MMPROTECT_ADMIN_API_KEY_0` | **Yes** | Admin Bearer token |
+| `MMPROTECT_KEK` | Prod | AES-256-GCM key wrapping build keys (`openssl rand -hex 32`) |
+| `MMPROTECT_SIGNING_KEY_HOST_PATH` | Prod | Host path to `signing-private.pem` — auto-mounts and wires `SigningPrivateKeyFile` |
+
+---
+
 ## Database Setup
 
 ### Option A — SQLite (small deployments)

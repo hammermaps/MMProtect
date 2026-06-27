@@ -6,6 +6,38 @@
 
 ---
 
+## Deployment-Methode wählen
+
+| Methode | Wann sinnvoll |
+|---|---|
+| **Docker** (empfohlen) | Neue Deployments, kein .NET auf dem Host nötig, einfaches Upgrade |
+| **systemd** (klassisch) | Bestehende .NET-Infrastruktur, bare-metal ohne Docker |
+
+### Option A — Docker-Schnellstart (empfohlen)
+
+```bash
+# 1. Konfiguration anlegen
+cp .env.example .env && chmod 600 .env
+nano .env   # MMPROTECT_ENCODER_API_KEY_0, MMPROTECT_ADMIN_API_KEY_0, MMPROTECT_KEK setzen
+
+# 2. Mit SQLite starten (kein MySQL nötig)
+docker compose -f docker-compose.sqlite.yml up -d
+
+# 3. Prüfen
+curl http://localhost:8080/health
+```
+
+Vollständige Docker-Anleitung inkl. MySQL, Signing-Key, Reverse Proxy und Produktions-Checkliste:
+→ **[`docs/docker-deployment.md`](docker-deployment.md)**
+
+---
+
+### Option B — Klassische systemd-Installation
+
+Die folgenden Schritte beschreiben die systemd-basierte Installation ohne Docker.
+
+---
+
 ## Schritt 1 — Abhängigkeiten installieren
 
 ```bash
