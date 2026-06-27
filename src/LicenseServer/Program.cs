@@ -520,14 +520,25 @@ app.MapPost("/api/v1/runtime/lease", async (
         catch { /* malformed constraints JSON — skip */ }
     }
 
-    /* Check activation limit: count BEFORE upsert, excluding this machine (re-activations always allowed) */
-    var existingActivationDbId = await conn.ExecuteScalarAsync<long?>("""
-        SELECT id FROM license_activations
+    /* Check activation: look up existing record for this machine (includes status) */
+    var existingActivation = await conn.QuerySingleOrDefaultAsync<ExistingActivationRow>("""
+        SELECT id AS Id, status AS Status FROM license_activations
         WHERE license_id = @LicenseDbId AND machine_fingerprint = @MachineFingerprint
         """, new { LicenseDbId = row.LicenseDbId, request.MachineFingerprint });
 
-    if (existingActivationDbId is null)
+    if (existingActivation is not null)
     {
+        /* Revoked activation: this machine is explicitly blocked */
+        if (existingActivation.Status == "revoked")
+        {
+            await audit.LogAsync("loader", "lease_denied", "license", row.LicenseUid, clientIp,
+                new { reason = "ACTIVATION_REVOKED", machineFingerprint = request.MachineFingerprint });
+            return Results.BadRequest(ErrorDto.Create("ACTIVATION_REVOKED", "Activation has been revoked for this machine."));
+        }
+    }
+    else
+    {
+        /* New machine: enforce max_activations against currently active slots */
         var activeCount = await conn.ExecuteScalarAsync<int>("""
             SELECT COUNT(*) FROM license_activations
             WHERE license_id = @LicenseDbId AND status = 'active'
@@ -926,6 +937,12 @@ app.Run();
 
 // Must be classes with setters (not records) so Dapper uses property-level
 // type handlers (DapperDateTimeHandler) rather than constructor injection.
+
+file sealed class ExistingActivationRow
+{
+    public long   Id     { get; set; }
+    public string Status { get; set; } = "";
+}
 
 file sealed class LeaseQueryRow
 {

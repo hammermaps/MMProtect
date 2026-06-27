@@ -335,6 +335,32 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
+    public async Task RuntimeLease_RevokedActivation_Rejected()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-actrev", "proj-actrev", "MM-ACTREV-001", maxActivations: 5);
+
+        const string fingerprint = "sha256:" + "d" + "0000000000000000000000000000000000000000000000000000000000000000";
+
+        // First lease: creates the activation
+        var first = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fingerprint);
+        Assert.Equal(System.Net.HttpStatusCode.OK, first.StatusCode);
+
+        // Revoke the activation via direct DB update (admin endpoint uses activation_uid which we resolve here)
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        await conn.ExecuteAsync(
+            "UPDATE license_activations SET status = 'revoked' WHERE machine_fingerprint = @Fp",
+            new { Fp = fingerprint });
+
+        // Second lease for the same machine must now be denied
+        var second = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fingerprint);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, second.StatusCode);
+        var body = await second.Content.ReadAsStringAsync();
+        Assert.Contains("ACTIVATION_REVOKED", body);
+    }
+
+    [Fact]
     public async Task AdminRevoke_License_BlocksLease()
     {
         var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
