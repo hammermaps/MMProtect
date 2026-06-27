@@ -862,6 +862,11 @@ public sealed class SmokeTests : IDisposable
     {
         _client.Dispose();
         _factory.Dispose();
+        // On Windows, Microsoft.Data.Sqlite releases native file handles in GC
+        // finalizers. Force them to run before deleting the temp DB file,
+        // otherwise File.Delete throws IOException ("used by another process").
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
         if (File.Exists(_dbPath))
             File.Delete(_dbPath);
     }
