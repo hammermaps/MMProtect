@@ -801,6 +801,14 @@ adminApi.MapDelete("/activations/{activationUid}", async (
 {
     await using var conn = await db.OpenAsync();
 
+    // Delete associated runtime leases first (FK: runtime_leases.activation_id → license_activations.id)
+    await conn.ExecuteAsync("""
+        DELETE FROM runtime_leases
+        WHERE activation_id = (
+            SELECT id FROM license_activations WHERE activation_uid = @ActivationUid
+        )
+        """, new { ActivationUid = activationUid });
+
     var affected = await conn.ExecuteAsync(
         "DELETE FROM license_activations WHERE activation_uid = @ActivationUid",
         new { ActivationUid = activationUid });

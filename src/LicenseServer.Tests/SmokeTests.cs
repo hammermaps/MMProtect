@@ -24,8 +24,10 @@ public sealed class SmokeTests : IDisposable
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"mmtest_{Guid.NewGuid():N}.db");
 
-        // Apply the SQLite schema
-        using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        // Apply the SQLite schema on a non-pooled connection so that
+        // "PRAGMA foreign_keys=ON" in the schema file does not leak into
+        // the connection pool that the in-process server uses.
+        using var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
         conn.Open();
         var schema = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "database", "sqlite", "schema.sql"));
@@ -411,6 +413,336 @@ public sealed class SmokeTests : IDisposable
             $"Expected LEASE_DENIED or LICENSE_REVOKED but got: {body}");
     }
 
+    /* ── Hostname constraint tests ───────────────────────────────────────── */
+
+    [Fact]
+    public async Task Constraint_AllowedHostname_ExactMatch_Granted()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-hn-exact-ok", "proj-hn-exact-ok", "MM-HNEXOK-001",
+            constraints: new { allowedHostnames = new[] { "mail.example.com" } });
+
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash,
+            hostname: "mail.example.com");
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Constraint_AllowedHostname_ExactMatch_Blocked()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-hn-exact-bad", "proj-hn-exact-bad", "MM-HNEXBAD-001",
+            constraints: new { allowedHostnames = new[] { "mail.example.com" } });
+
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash,
+            hostname: "evil.com");
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("LEASE_DENIED", body);
+    }
+
+    [Fact]
+    public async Task Constraint_AllowedHostname_Wildcard_Granted()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-hn-wild-ok", "proj-hn-wild-ok", "MM-HNWILDOK-001",
+            constraints: new { allowedHostnames = new[] { "*.example.com" } });
+
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash,
+            hostname: "app.example.com");
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Constraint_AllowedHostname_Wildcard_Blocked()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-hn-wild-bad", "proj-hn-wild-bad", "MM-HNWILDBAD-001",
+            constraints: new { allowedHostnames = new[] { "*.example.com" } });
+
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash,
+            hostname: "app.evil.com");
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("LEASE_DENIED", body);
+    }
+
+    [Fact]
+    public async Task Constraint_AllowedIp_Granted()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-ip-ok", "proj-ip-ok", "MM-IPOK-001",
+            constraints: new { allowedIps = new[] { "10.0.0.1" } });
+
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash,
+            publicIp: "10.0.0.1");
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Constraint_AllowedIp_Blocked()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-ip-bad", "proj-ip-bad", "MM-IPBAD-001",
+            constraints: new { allowedIps = new[] { "10.0.0.1" } });
+
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash,
+            publicIp: "10.0.0.2");
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("LEASE_DENIED", body);
+    }
+
+    [Fact]
+    public async Task Constraint_NoValueSent_ConstraintSkipped()
+    {
+        // Server skips constraint when the loader doesn't send the field
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-skip-ok", "proj-skip-ok", "MM-SKIPOK-001",
+            constraints: new { allowedHostnames = new[] { "locked.example.com" } });
+
+        // hostname not sent → constraint check is skipped → lease granted
+        var resp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash);
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    /* ── Revocation via Admin API ─────────────────────────────────────────── */
+
+    [Fact]
+    public async Task Admin_RevokeBuild_ViaAdminApi_BlocksLease()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-bldrev-api", "proj-bldrev-api", "MM-BLDREVAPI-001");
+
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var revokeResp = await adminClient.PostAsJsonAsync(
+            $"/api/v1/admin/builds/{buildId}/revoke", new { reason = "test" });
+        revokeResp.EnsureSuccessStatusCode();
+
+        var leaseResp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, leaseResp.StatusCode);
+        var body = await leaseResp.Content.ReadAsStringAsync();
+        Assert.Contains("LEASE_DENIED", body);
+    }
+
+    [Fact]
+    public async Task Admin_RevokeActivation_ViaAdminApi_BlocksLease()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-actrevapi", "proj-actrevapi", "MM-ACTREVAPI-001", maxActivations: 5);
+
+        const string fp = "sha256:eeee0000000000000000000000000000000000000000000000000000000000ee";
+
+        // First lease → creates the activation
+        var first = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fp);
+        Assert.Equal(System.Net.HttpStatusCode.OK, first.StatusCode);
+
+        // Get activation_uid via admin API
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var listResp = await adminClient.GetAsync($"/api/v1/admin/activations?licenseUid={licenseId}");
+        listResp.EnsureSuccessStatusCode();
+        var listJson = await listResp.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(listJson);
+        var activationId = doc.RootElement
+            .GetProperty("activations")[0]
+            .GetProperty("activationId").GetString()!;
+
+        // Revoke via admin API
+        var revokeResp = await adminClient.PostAsJsonAsync(
+            $"/api/v1/admin/activations/{activationId}/revoke", new { reason = "test" });
+        revokeResp.EnsureSuccessStatusCode();
+
+        // Same machine tries again → blocked
+        var second = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fp);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, second.StatusCode);
+        var body = await second.Content.ReadAsStringAsync();
+        Assert.Contains("ACTIVATION_REVOKED", body);
+    }
+
+    [Fact]
+    public async Task Admin_DeleteActivation_FreesSlot()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-actdel", "proj-actdel", "MM-ACTDEL-001", maxActivations: 1);
+
+        const string fpA = "sha256:aaaa000000000000000000000000000000000000000000000000000000000aaa";
+        const string fpB = "sha256:bbbb000000000000000000000000000000000000000000000000000000000bbb";
+
+        // Machine A fills the single slot
+        var r1 = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fpA);
+        Assert.Equal(System.Net.HttpStatusCode.OK, r1.StatusCode);
+
+        // Machine B is rejected
+        var r2 = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fpB);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, r2.StatusCode);
+        Assert.Contains("ACTIVATION_LIMIT_REACHED", await r2.Content.ReadAsStringAsync());
+
+        // Admin deletes machine A's activation
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var listResp = await adminClient.GetAsync($"/api/v1/admin/activations?licenseUid={licenseId}");
+        listResp.EnsureSuccessStatusCode();
+        using var doc = System.Text.Json.JsonDocument.Parse(await listResp.Content.ReadAsStringAsync());
+        var activationId = doc.RootElement.GetProperty("activations")[0]
+            .GetProperty("activationId").GetString()!;
+
+        var delResp = await adminClient.DeleteAsync($"/api/v1/admin/activations/{activationId}");
+        delResp.EnsureSuccessStatusCode();
+
+        // Machine B can now activate
+        var r3 = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash, fingerprint: fpB);
+        Assert.Equal(System.Net.HttpStatusCode.OK, r3.StatusCode);
+    }
+
+    /* ── Admin API endpoint coverage ─────────────────────────────────────── */
+
+    [Fact]
+    public async Task AdminApi_RequiresAuth_WithoutKey_Unauthorized()
+    {
+        var anonClient = _factory.CreateClient();
+        var resp = await anonClient.GetAsync("/api/v1/admin/licenses");
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminApi_ListLicenses_ReturnsCreated()
+    {
+        var (_, _, licenseId, _, _) = await SetupBuildAsync(
+            "cref-adminlist", "proj-adminlist", "MM-ADMINLIST-001");
+
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var resp = await adminClient.GetAsync("/api/v1/admin/licenses");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains(licenseId, body);
+    }
+
+    [Fact]
+    public async Task AdminApi_ListLicenses_FilterByStatus()
+    {
+        var (_, _, licenseId, _, _) = await SetupBuildAsync(
+            "cref-admfilt", "proj-admfilt", "MM-ADMFILT-001");
+
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        // Active filter must include our license
+        var active = await adminClient.GetAsync("/api/v1/admin/licenses?status=active");
+        active.EnsureSuccessStatusCode();
+        Assert.Contains(licenseId, await active.Content.ReadAsStringAsync());
+
+        // Revoked filter must NOT include it before revocation
+        var revoked = await adminClient.GetAsync("/api/v1/admin/licenses?status=revoked");
+        revoked.EnsureSuccessStatusCode();
+        Assert.DoesNotContain(licenseId, await revoked.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task AdminApi_ListActivations_AfterLease_ReturnsEntry()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-admact", "proj-admact", "MM-ADMACT-001");
+
+        var leaseResp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash);
+        leaseResp.EnsureSuccessStatusCode();
+
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var resp = await adminClient.GetAsync($"/api/v1/admin/activations?licenseUid={licenseId}");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains(licenseId, body);
+        Assert.Contains("active", body);
+    }
+
+    [Fact]
+    public async Task AdminApi_AuditLog_AfterLeaseGrant_ContainsEntry()
+    {
+        var (_, leaseClient, licenseId, buildId, manifestHash) = await SetupBuildAsync(
+            "cref-admaudit", "proj-admaudit", "MM-ADMAUDIT-001");
+
+        var leaseResp = await RequestLeaseAsync(leaseClient, licenseId, buildId, manifestHash);
+        leaseResp.EnsureSuccessStatusCode();
+
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var resp = await adminClient.GetAsync($"/api/v1/admin/audit-log?entityUid={licenseId}");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("lease_granted", body);
+    }
+
+    [Fact]
+    public async Task AdminApi_Stats_ReturnsAllFields()
+    {
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var resp = await adminClient.GetAsync("/api/v1/admin/stats");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("licenses", body);
+        Assert.Contains("builds", body);
+        Assert.Contains("activations", body);
+        Assert.Contains("leases", body);
+    }
+
+    [Fact]
+    public async Task AdminApi_ApiClients_CreateListDelete()
+    {
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        // Create
+        var createResp = await adminClient.PostAsJsonAsync("/api/v1/admin/api-clients",
+            new { name = "test-client-smoke", scope = "encoder" });
+        createResp.EnsureSuccessStatusCode();
+        var createBody = await createResp.Content.ReadAsStringAsync();
+        Assert.Contains("test-client-smoke", createBody);
+        using var createDoc = System.Text.Json.JsonDocument.Parse(createBody);
+        var clientUid = createDoc.RootElement.GetProperty("clientUid").GetString()!;
+        Assert.StartsWith("client_", clientUid);
+
+        // List — new client appears
+        var listResp = await adminClient.GetAsync("/api/v1/admin/api-clients");
+        listResp.EnsureSuccessStatusCode();
+        Assert.Contains(clientUid, await listResp.Content.ReadAsStringAsync());
+
+        // Delete (soft-delete: sets is_active=0, record stays in list with isActive=false)
+        var delResp = await adminClient.DeleteAsync($"/api/v1/admin/api-clients/{clientUid}");
+        delResp.EnsureSuccessStatusCode();
+        var delBody = await delResp.Content.ReadAsStringAsync();
+        Assert.Contains("true", delBody);
+
+        // List — client still appears but is now inactive
+        var listAfter = await adminClient.GetAsync("/api/v1/admin/api-clients");
+        listAfter.EnsureSuccessStatusCode();
+        var listAfterBody = await listAfter.Content.ReadAsStringAsync();
+        Assert.Contains(clientUid, listAfterBody);
+        using var afterDoc = System.Text.Json.JsonDocument.Parse(listAfterBody);
+        var matchingClient = afterDoc.RootElement.GetProperty("clients").EnumerateArray()
+            .FirstOrDefault(c => c.GetProperty("clientUid").GetString() == clientUid);
+        Assert.False(matchingClient.GetProperty("isActive").GetBoolean());
+    }
+
     /* ── Security test helpers ───────────────────────────────────────────── */
 
     private async Task<(HttpClient BuildClient, HttpClient LeaseClient, string LicenseId, string BuildId, string ManifestHash)>
@@ -475,7 +807,9 @@ public sealed class SmokeTests : IDisposable
         string buildId,
         string manifestHash,
         string? fingerprint = null,
-        string? domain = null)
+        string? domain = null,
+        string? hostname = null,
+        string? publicIp = null)
     {
         return await client.PostAsJsonAsync("/api/v1/runtime/lease", new
         {
@@ -489,7 +823,9 @@ public sealed class SmokeTests : IDisposable
             phpVersion = "8.4.0",
             sapi = "cli",
             nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)),
-            domain
+            domain,
+            hostname,
+            publicIp
         });
     }
 
