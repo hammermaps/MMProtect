@@ -43,7 +43,8 @@ export interface LicenseDto {
   createdAt: string
 }
 export const fetchLicenses = (status?: string) =>
-  request<LicenseDto[]>('/api/v1/admin/licenses' + (status ? `?status=${status}` : ''))
+  request<{ licenses: LicenseDto[] }>('/api/v1/admin/licenses' + (status ? `?status=${status}` : ''))
+    .then(r => r.licenses)
 
 export const revokeLicense = (licenseId: string, reason?: string) =>
   request(`/api/v1/admin/licenses/${licenseId}/revoke`, {
@@ -62,7 +63,8 @@ export interface ActivationDto {
   lastSeenAt: string
 }
 export const fetchActivations = (licenseId?: string) =>
-  request<ActivationDto[]>('/api/v1/admin/activations' + (licenseId ? `?licenseUid=${licenseId}` : ''))
+  request<{ activations: ActivationDto[] }>('/api/v1/admin/activations' + (licenseId ? `?licenseUid=${licenseId}` : ''))
+    .then(r => r.activations)
 
 export const revokeActivation = (id: string) =>
   request(`/api/v1/admin/activations/${id}/revoke`, { method: 'POST', body: '{}' })
@@ -83,9 +85,9 @@ export interface AuditEventDto {
   createdAt: string
 }
 export const fetchAuditLog = (params?: Record<string, string>) =>
-  request<AuditEventDto[]>(
+  request<{ events: AuditEventDto[] }>(
     '/api/v1/admin/audit-log' + (params ? '?' + new URLSearchParams(params) : '')
-  )
+  ).then(r => r.events)
 
 // ── API clients ───────────────────────────────────────────────────────
 
@@ -103,7 +105,9 @@ export interface ApiClientCreateResponse {
   scope: string
   createdAt: string
 }
-export const fetchApiClients = () => request<ApiClientDto[]>('/api/v1/admin/api-clients')
+export const fetchApiClients = () =>
+  request<{ clients: ApiClientDto[] }>('/api/v1/admin/api-clients')
+    .then(r => r.clients)
 
 export const createApiClient = (name: string, scope: string) =>
   request<ApiClientCreateResponse>('/api/v1/admin/api-clients', {
