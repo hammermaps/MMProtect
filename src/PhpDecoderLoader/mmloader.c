@@ -62,13 +62,17 @@ ZEND_BEGIN_MODULE_GLOBALS(mmloader)
 #ifdef MMPROTECT_DEV_BUILD
     char      *dev_buildkey;
 #endif
-    /* Week 4: path to ECDSA-P256 PEM public key for signature verification */
     char      *signing_public_key_file;
     zend_long  connect_timeout_ms;
     zend_long  request_timeout_ms;
     zend_long  lease_refresh_seconds;
     zend_long  offline_grace_seconds;
     zend_bool  require_signature;
+    /* Proactive refresh: trigger re-fetch when remaining TTL falls below this
+     * percentage of lease_refresh_seconds. Default: 10 (= 10 %). */
+    zend_long  lease_refresh_threshold_pct;
+    /* Maximum accepted AES-GCM ciphertext size in MiB. Default: 256. */
+    zend_long  max_file_size_mb;
 #ifdef MMPROTECT_DEV_BUILD
     zend_bool  dev_mode;
     zend_bool  dev_mode_warned;
@@ -138,6 +142,10 @@ PHP_INI_BEGIN()
         OnUpdateLong, offline_grace_seconds, zend_mmloader_globals, mmloader_globals)
     STD_PHP_INI_BOOLEAN("mmloader.require_signature", "1", PHP_INI_SYSTEM,
         OnUpdateBool, require_signature, zend_mmloader_globals, mmloader_globals)
+    STD_PHP_INI_ENTRY("mmloader.lease_refresh_threshold_pct", "10", PHP_INI_SYSTEM,
+        OnUpdateLong, lease_refresh_threshold_pct, zend_mmloader_globals, mmloader_globals)
+    STD_PHP_INI_ENTRY("mmloader.max_file_size_mb", "256", PHP_INI_SYSTEM,
+        OnUpdateLong, max_file_size_mb, zend_mmloader_globals, mmloader_globals)
 #ifdef MMPROTECT_DEV_BUILD
     STD_PHP_INI_BOOLEAN("mmloader.dev_mode", "0", PHP_INI_SYSTEM,
         OnUpdateBool, dev_mode, zend_mmloader_globals, mmloader_globals)
@@ -160,7 +168,9 @@ static void php_mmloader_init_globals(zend_mmloader_globals *g)
     g->request_timeout_ms   = 5000;
     g->lease_refresh_seconds  = 3600;
     g->offline_grace_seconds  = 604800;
-    g->require_signature    = 1;
+    g->require_signature              = 1;
+    g->lease_refresh_threshold_pct    = 10;
+    g->max_file_size_mb               = 256;
 #ifdef MMPROTECT_DEV_BUILD
     g->dev_mode             = 0;
     g->dev_mode_warned      = 0;
@@ -174,6 +184,27 @@ static void php_mmloader_init_globals(zend_mmloader_globals *g)
     g->curl_handle            = NULL;
     g->protected_files        = NULL;
     g->file_magic_cache       = NULL;
+}
+
+/* Called by the ZTS thread-local storage subsystem when a thread exits,
+ * and manually in MSHUTDOWN for NTS (where ZEND_INIT_MODULE_GLOBALS ignores
+ * the dtor argument).  Releases per-thread / per-process resources that
+ * are stored inside the module globals struct. */
+static void php_mmloader_shutdown_globals(zend_mmloader_globals *g)
+{
+    if (g->curl_handle) {
+        curl_easy_cleanup(g->curl_handle);
+        g->curl_handle = NULL;
+    }
+    if (g->cached_build_id) {
+        pefree(g->cached_build_id, 1);
+        g->cached_build_id = NULL;
+    }
+    ZEND_SECURE_ZERO(g->cached_runtime_key, sizeof(g->cached_runtime_key));
+    g->has_cached_key = 0;
+    mm_protected_destroy(&g->protected_files);
+    mm_magic_cache_destroy(&g->file_magic_cache);
+    mm_features_destroy(&g->lease_features);
 }
 
 /* ====================================================================
@@ -957,11 +988,17 @@ static int mmloader_get_or_fetch_runtime_key(const char *build_id,
     }
 
 #ifdef MMPROTECT_DEV_BUILD
-    /* 4. dev_buildkey fallback (dev build only) */
+    /* 4. dev_buildkey fallback (dev build only).
+     *    Populate the RAM lease cache so the execute_ex OPcache guard passes
+     *    on subsequent cache-hit requests (e.g. when running under Xdebug
+     *    or after the first FPM request warms OPcache). */
     const char *dbk = MMLOADER_G(dev_buildkey);
     if (dbk && dbk[0]) {
         ZEND_SECURE_ZERO(disk_key, sizeof(disk_key));
-        return mmloader_read_dev_buildkey(key_out);
+        if (!mmloader_read_dev_buildkey(key_out)) return 0;
+        memcpy(MMLOADER_G(cached_runtime_key), key_out, 32);
+        MMLOADER_G(has_cached_key) = 1;
+        return 1;
     }
 #endif
 
@@ -1117,7 +1154,12 @@ static zend_string *mmloader_decrypt_from_fp(FILE *fp, const char *filename)
     }
     fseek(fp, ct_start, SEEK_SET);
     ct_len = (size_t)(file_size - ct_start);
-    if (ct_len > 256 * 1024 * 1024) goto cleanup;
+    if (ct_len > (size_t)MMLOADER_G(max_file_size_mb) * 1024 * 1024) {
+        php_error_docref(NULL, E_WARNING,
+            "MMENC: ciphertext in %s exceeds mmloader.max_file_size_mb (%ld MiB)",
+            filename, MMLOADER_G(max_file_size_mb));
+        goto cleanup;
+    }
 
     ciphertext = emalloc(ct_len);
     if (fread(ciphertext, 1, ct_len, fp) != ct_len) {
@@ -1319,7 +1361,11 @@ PHP_MINIT_FUNCTION(mmloader)
     if (s_minit_done) return SUCCESS;
     s_minit_done = 1;
 
-    ZEND_INIT_MODULE_GLOBALS(mmloader, php_mmloader_init_globals, NULL);
+    /* Register globals constructor + destructor.
+     * In ZTS: destructor is called by ts_allocate_id when a thread exits.
+     * In NTS: destructor is ignored here and called manually in MSHUTDOWN. */
+    ZEND_INIT_MODULE_GLOBALS(mmloader, php_mmloader_init_globals,
+                             php_mmloader_shutdown_globals);
     REGISTER_INI_ENTRIES();
 
     /* Pre-compute HKDF salt */
@@ -1388,21 +1434,25 @@ PHP_MINIT_FUNCTION(mmloader)
     mm_protected_init(&MMLOADER_G(protected_files));
     mm_magic_cache_init(&MMLOADER_G(file_magic_cache));
 
-    /* libcurl */
+    /* Global libcurl initialisation (not thread-safe; must run once here).
+     * Per-thread handles are created lazily in RINIT. */
     if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
         php_error(E_CORE_ERROR, "MMENC: curl_global_init failed");
-        return FAILURE;
-    }
-    MMLOADER_G(curl_handle) = curl_easy_init();
-    if (!MMLOADER_G(curl_handle)) {
-        curl_global_cleanup();
-        php_error(E_CORE_ERROR, "MMENC: curl_easy_init failed");
         return FAILURE;
     }
 
     /* Install engine hooks */
     s_orig_compile_file = mm_hook_compile_file(mmloader_compile_file);
     s_orig_execute_ex   = mm_hook_execute_ex(mmloader_execute_ex_hook);
+
+    /* Xdebug compatibility notice: hooks chain correctly regardless of load
+     * order, but encrypted files cannot be step-debugged. */
+    if (zend_get_extension("Xdebug")) {
+        php_error(E_CORE_WARNING,
+            "MMENC mmloader: Xdebug detected. "
+            "MMENC1-encrypted files cannot be step-debugged. "
+            "Recommended load order: opcache, mmloader, xdebug.");
+    }
 
     return SUCCESS;
 }
@@ -1413,14 +1463,24 @@ PHP_MSHUTDOWN_FUNCTION(mmloader)
     mm_unhook_compile_file(s_orig_compile_file); s_orig_compile_file = NULL;
     mm_unhook_execute_ex(s_orig_execute_ex);     s_orig_execute_ex   = NULL;
 
-    ZEND_SECURE_ZERO(MMLOADER_G(cached_runtime_key),
-                     sizeof(MMLOADER_G(cached_runtime_key)));
-    MMLOADER_G(has_cached_key) = 0;
+    /* Release globals stored in the current-thread's / process's storage.
+     *
+     * NTS: ZEND_INIT_MODULE_GLOBALS ignores the dtor, so we clean up here.
+     * ZTS: MSHUTDOWN runs on the main thread; MMLOADER_G() accesses that
+     *      thread's storage.  php_mmloader_shutdown_globals is registered as
+     *      a ts_allocate_id dtor, so worker threads are cleaned up later by
+     *      tsrm_shutdown() → the per-thread dtor. */
+    if (MMLOADER_G(curl_handle)) {
+        curl_easy_cleanup(MMLOADER_G(curl_handle));
+        MMLOADER_G(curl_handle) = NULL;
+    }
     if (MMLOADER_G(cached_build_id)) {
         pefree(MMLOADER_G(cached_build_id), 1);
         MMLOADER_G(cached_build_id) = NULL;
     }
-
+    ZEND_SECURE_ZERO(MMLOADER_G(cached_runtime_key),
+                     sizeof(MMLOADER_G(cached_runtime_key)));
+    MMLOADER_G(has_cached_key) = 0;
     mm_protected_destroy(&MMLOADER_G(protected_files));
     mm_magic_cache_destroy(&MMLOADER_G(file_magic_cache));
     mm_features_destroy(&MMLOADER_G(lease_features));
@@ -1430,12 +1490,9 @@ PHP_MSHUTDOWN_FUNCTION(mmloader)
         s_signing_public_key = NULL;
     }
 
-    if (MMLOADER_G(curl_handle)) {
-        curl_easy_cleanup(MMLOADER_G(curl_handle));
-        MMLOADER_G(curl_handle) = NULL;
-    }
     curl_global_cleanup();
 
+    /* Zero static (process-wide) secrets */
     ZEND_SECURE_ZERO(s_hkdf_salt,           sizeof(s_hkdf_salt));
 #ifdef MMPROTECT_DEV_BUILD
     ZEND_SECURE_ZERO(s_demo_signing_key,    sizeof(s_demo_signing_key));
@@ -1452,6 +1509,17 @@ PHP_RINIT_FUNCTION(mmloader)
 #if defined(ZTS) && defined(COMPILE_DL_MMLOADER)
     ZEND_TSRMLS_CACHE_UPDATE();
 #endif
+    /* Initialise per-thread CURL handle on first request.
+     * curl_global_init() was already called in MINIT (process-wide, once).
+     * curl_easy_init() is per-thread safe and runs here so ZTS worker threads
+     * each get their own handle without MINIT needing to know about threads. */
+    if (MMLOADER_G(enabled) && !MMLOADER_G(curl_handle)) {
+        MMLOADER_G(curl_handle) = curl_easy_init();
+        if (!MMLOADER_G(curl_handle)) {
+            php_error_docref(NULL, E_WARNING,
+                "MMENC: curl_easy_init failed — lease requests will not work");
+        }
+    }
 #ifdef MMPROTECT_DEV_BUILD
     if (MMLOADER_G(dev_mode) && !MMLOADER_G(dev_mode_warned)) {
         php_error_docref(NULL, E_WARNING,
@@ -1459,16 +1527,27 @@ PHP_RINIT_FUNCTION(mmloader)
         MMLOADER_G(dev_mode_warned) = 1;
     }
 #endif
-    /* Proactive lease refresh: within 10 % of TTL → force re-fetch */
+    /* Proactive lease refresh: within lease_refresh_threshold_pct % of TTL,
+     * evict the RAM cache so the next require triggers a fresh HTTP lease. */
     if (MMLOADER_G(has_cached_key) && MMLOADER_G(cached_lease_expires) > 0) {
-        time_t now      = time(NULL);
-        time_t ttl      = MMLOADER_G(cached_lease_expires) - now;
-        time_t threshold = MMLOADER_G(lease_refresh_seconds) / 10;
+        time_t now       = time(NULL);
+        time_t ttl       = MMLOADER_G(cached_lease_expires) - now;
+        zend_long pct    = MMLOADER_G(lease_refresh_threshold_pct);
+        time_t threshold = MMLOADER_G(lease_refresh_seconds) * (pct > 0 ? pct : 10) / 100;
         if (ttl > 0 && ttl < threshold) {
             MMLOADER_G(cached_lease_expires) = 0;
             MMLOADER_G(has_cached_key)       = 0;
         }
     }
+    return SUCCESS;
+}
+
+PHP_RSHUTDOWN_FUNCTION(mmloader)
+{
+    /* Per-request cleanup.  The CURL handle is intentionally kept alive across
+     * requests to avoid repeated init/teardown overhead.  It is freed in
+     * MSHUTDOWN (NTS / ZTS main thread) or by the per-thread globals dtor
+     * registered in ZEND_INIT_MODULE_GLOBALS (ZTS worker threads). */
     return SUCCESS;
 }
 
@@ -1537,7 +1616,7 @@ zend_module_entry mmloader_module_entry = {
     PHP_MINIT(mmloader),
     PHP_MSHUTDOWN(mmloader),
     PHP_RINIT(mmloader),
-    NULL,
+    PHP_RSHUTDOWN(mmloader),
     PHP_MINFO(mmloader),
     PHP_MMLOADER_VERSION,
     STANDARD_MODULE_PROPERTIES
