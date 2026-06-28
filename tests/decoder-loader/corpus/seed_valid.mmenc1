@@ -1,0 +1,3 @@
+MMENC1
+00000416
+{"format":"MMENC1","formatVersion":1,"algorithm":"AES-256-GCM","buildId":"build_seed","fileId":"file_seed","projectId":"proj","customerId":"cust","licenseId":"lic","relativePath":"src/test.php","pathHash":"sha256:aabbccdd","plainHash":"sha256:aabbccdd","cipherHash":"sha256:aabbccdd","nonce":"AAAAAAAAAAAAAAAA","tag":"AAAAAAAAAAAAAAAAAAAAAA==","kdf":"HKDF-SHA256","manifestHash":"sha256:aabb","signature":"MEQCIA=="}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

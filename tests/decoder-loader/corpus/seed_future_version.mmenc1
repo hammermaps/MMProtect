@@ -1,0 +1,3 @@
+MMENC1
+00000236
+{"format":"MMENC1","formatVersion":99,"algorithm":"AES-256-GCM","buildId":"b","fileId":"f","pathHash":"sha256:aa","nonce":"AAAAAAAAAAAAAAAA","tag":"AAAAAAAAAAAAAAAAAAAAAA==","signature":"AA==","manifestHash":"","cipherHash":"sha256:00"}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
