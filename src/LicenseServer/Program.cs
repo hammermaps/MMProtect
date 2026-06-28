@@ -138,11 +138,16 @@ if (adminKeys.Length == 0 || adminKeys.All(k => k.Contains("change-me", StringCo
 if (proxyEnabled)
     app.UseForwardedHeaders();
 
-// Serve the embedded Vue Admin UI from wwwroot/admin/
-// Use AppContext.BaseDirectory (= location of the running DLL) to find wwwroot so
-// this works regardless of how --contentRoot is set: published artifacts, dotnet run,
-// or tests that pass a different content root.
+// Serve the embedded Vue Admin UI from wwwroot/admin/.
+// Candidate order:
+//   1. Next to the DLL (dotnet publish output, Docker image)
+//   2. ContentRoot/wwwroot (dotnet run from project or repo root sets ContentRoot correctly)
+// Using an explicit PhysicalFileProvider avoids dependency on ASPNETCORE_ENVIRONMENT or
+// static-web-assets manifests — both dev and prod scenarios are covered by the same code path.
 var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+if (!Directory.Exists(wwwrootPath))
+    wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+
 if (Directory.Exists(wwwrootPath))
 {
     app.UseStaticFiles(new StaticFileOptions
@@ -962,16 +967,17 @@ adminApi.MapGet("/audit-log", async (IDbConnectionFactory db, string? entityType
 });
 
 // SPA fallback: serve admin/index.html for client-side navigation routes.
-// Paths that contain a file extension (e.g. .js, .css, .png) are NOT intercepted —
+// Paths that contain a file extension (e.g. .js, .css, .svg) are NOT intercepted —
 // if UseStaticFiles missed them, return 404 so the browser receives a proper error
 // instead of text/html (which breaks <script type="module"> loading).
+// Uses the same wwwrootPath resolved above for consistency.
 app.MapGet("/admin/{**slug}", (string? slug) =>
 {
     var path = slug ?? "";
     if (path.Length > 0 && Path.HasExtension(path))
         return Results.NotFound();
 
-    var indexPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "admin", "index.html");
+    var indexPath = Path.Combine(wwwrootPath, "admin", "index.html");
     if (!File.Exists(indexPath))
         return Results.NotFound();
 

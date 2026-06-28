@@ -12,6 +12,9 @@ if not exist "%PROJECT%" (
   exit /b 0
 )
 
+rem Admin UI zuerst bauen (npm ci + vite build -> src\LicenseServer\wwwroot\admin\)
+call scripts\windows\build-admin-ui.cmd
+
 dotnet restore "%PROJECT%"
 if exist "src\LicenseServer.Tests\LicenseServer.Tests.csproj" dotnet test "src\LicenseServer.Tests\LicenseServer.Tests.csproj" --configuration Release
 dotnet publish "%PROJECT%" -c Release -r win-x64 --self-contained false -o "%OUT%"

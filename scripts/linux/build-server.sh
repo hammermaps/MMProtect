@@ -13,6 +13,10 @@ if [ ! -f "$PROJECT" ]; then
   exit 0
 fi
 
+# Admin UI zuerst bauen — Vite schreibt direkt nach src/LicenseServer/wwwroot/admin/,
+# damit dotnet publish die Dateien in den Publish-Output einschließt.
+bash scripts/linux/build-admin-ui.sh
+
 dotnet restore "$PROJECT"
 dotnet test "src/LicenseServer.Tests/LicenseServer.Tests.csproj" --configuration Release || true
 dotnet publish "$PROJECT" -c Release -r linux-x64 --self-contained false -o "$OUT"
