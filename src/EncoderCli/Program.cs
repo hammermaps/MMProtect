@@ -116,7 +116,7 @@ try
 
                 var client = new LicenseServerClient(http, apiKey);
                 var encoder = new ProjectEncoder(client);
-                await encoder.EncodeAsync(config, project, cli.Verbose);
+                await encoder.EncodeAsync(config, project, cli.Verbose, dryRun: cli.DryRun);
             }
 
             return 0;

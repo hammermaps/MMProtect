@@ -643,7 +643,7 @@ else
 fi
 
 # Manually test the lease endpoint to confirm constraint rejection
-MANUAL_LEASE=$(curl -sf -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
+MANUAL_LEASE=$(curl -s -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
     -H "Content-Type: application/json" \
     -d "{
         \"projectId\":\"$CONSTRAINT_PROJ_ID\",
@@ -810,7 +810,7 @@ fi
 # Delete (soft)
 if [[ -n "$CLIENT_UID" ]]; then
     DEL_RESP=$(api DELETE "/api/v1/admin/api-clients/$CLIENT_UID" "$ADMIN_KEY") || DEL_RESP=""
-    DELETED=$(echo "$DEL_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('deleted',False))" 2>/dev/null)
+    DELETED=$(echo "$DEL_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('revoked',False))" 2>/dev/null)
     [[ "$DELETED" == "True" ]] && ok "API Client soft-deleted" || fail "API Client deletion failed: $DEL_RESP"
 
     # Should still appear but isActive=false
@@ -1223,7 +1223,7 @@ TEMP_PROJ_ID=$(echo "$TEMP_PROJ" | python3 -c "import sys,json; print(json.load(
 lease_test() {
     local lic_id="$1" label="$2" expect_code="$3"
     local resp http_code body
-    resp=$(curl -sf -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
+    resp=$(curl -s -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
         -H "Content-Type: application/json" \
         -d "{
             \"projectId\":\"$TEMP_PROJ_ID\",
@@ -1313,7 +1313,7 @@ with open('$OUT_PLAIN/.mmprotect/manifest.json') as f:
 
         send_lease() {
             local fp="$1"
-            curl -sf -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
+            curl -s -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
                 -H "Content-Type: application/json" \
                 -d "{
                     \"projectId\":\"$(python3 -c "import json; print(json.load(open('$OUT_PLAIN/.mmprotect/license.json')).get('projectId',''))" 2>/dev/null)\",
@@ -1407,7 +1407,7 @@ IP_LIC_BAD_ID=$(echo "$IP_LIC_BAD" | python3 -c "import sys,json; print(json.loa
 if [[ -n "$IP_LIC_BAD_ID" ]]; then
     ok "IP constraint: bad-IP license created"
     # Submit lease with a different IP
-    BAD_IP_RESP=$(curl -sf -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
+    BAD_IP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
         -H "Content-Type: application/json" \
         -d "{
             \"projectId\":\"$CONSTRAINT_PROJ_ID\",\"customerId\":\"$CONSTRAINT_CUST_ID\",
@@ -1432,7 +1432,7 @@ DOM_LIC=$(api POST /api/v1/encoder/licenses/upsert "$API_KEY" \
 DOM_LIC_ID=$(echo "$DOM_LIC" | python3 -c "import sys,json; print(json.load(sys.stdin).get('licenseId',''))" 2>/dev/null)
 if [[ -n "$DOM_LIC_ID" ]]; then
     ok "Domain constraint: license with allowedDomains=[bad-domain-xyz.invalid] created"
-    DOM_RESP=$(curl -sf -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
+    DOM_RESP=$(curl -s -w "\n%{http_code}" -X POST "$SERVER_URL/api/v1/runtime/lease" \
         -H "Content-Type: application/json" \
         -d "{
             \"projectId\":\"$CONSTRAINT_PROJ_ID\",\"customerId\":\"$CONSTRAINT_CUST_ID\",
@@ -1692,7 +1692,7 @@ $HAS_429 \
     && ok "Rate limiting: 429 Too Many Requests received after limit exceeded" \
     || fail "Rate limiting: no 429 in ${RATE_CODES[*]} (server may not enforce low limit)"
 
-RETRY_AFTER=$(curl -sf -I -X POST "$SERVER_URL/api/v1/runtime/lease" \
+RETRY_AFTER=$(curl -s -I -X POST "$SERVER_URL/api/v1/runtime/lease" \
     -H "Content-Type: application/json" \
     -d '{"projectId":"p","customerId":"c","licenseId":"l","buildId":"b",
          "manifestHash":"h","machineFingerprint":"f","loaderVersion":"0.1","phpVersion":"8.4",

@@ -214,8 +214,11 @@ public sealed class PhpObfuscatorTests
         // $this must NOT be renamed (protected)
         Assert.Contains("$this", result);
 
-        // User variables $message, $greeting, $name must be renamed
-        Assert.DoesNotContain("$message", result);
+        // Class property declaration $message must NOT be renamed (property level)
+        // because $this->message accesses it by the original name 'message'.
+        Assert.Contains("$message", result);
+
+        // Method parameters and local variables MUST be renamed
         Assert.DoesNotContain("$greeting", result);
         Assert.DoesNotContain("$name", result);
 

@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS runtime_leases (
   expires_at DATETIME NOT NULL,
   grace_until DATETIME NOT NULL,
   status ENUM('issued','revoked','expired') NOT NULL DEFAULT 'issued',
+  lease_signature TEXT,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_runtime_leases_uid (lease_uid),

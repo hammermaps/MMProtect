@@ -13,13 +13,34 @@ public sealed class ProjectEncoder
         _client = client;
     }
 
-    public async Task EncodeAsync(EncoderConfig config, ProjectOptions project, bool verbose)
+    public async Task EncodeAsync(EncoderConfig config, ProjectOptions project, bool verbose, bool dryRun = false)
     {
         var sourceRoot = Path.GetFullPath(project.SourceRoot);
         var outputRoot = Path.GetFullPath(project.OutputRoot);
 
         if (!Directory.Exists(sourceRoot))
             throw new DirectoryNotFoundException(sourceRoot);
+
+        if (dryRun)
+        {
+            Console.WriteLine($"[DRY-RUN] Projekt: {project.ProjectKey}");
+            Console.WriteLine($"[DRY-RUN] Quelle:  {sourceRoot}");
+            Console.WriteLine($"[DRY-RUN] Ziel:    {outputRoot}");
+            var dryMmIgnore = MmIgnoreRuleSet.LoadFromSourceRoot(sourceRoot, config.Defaults.MmIgnoreFile);
+            IEnumerable<string> dryFiles;
+            if (dryMmIgnore.HasRules)
+                dryFiles = FileSelector.SelectFilesWithMmIgnore(sourceRoot, dryMmIgnore, null, null, null)
+                    .Where(f => f.Action == FileAction.Encode && string.Equals(Path.GetExtension(f.AbsPath), ".php", StringComparison.OrdinalIgnoreCase))
+                    .Select(f => Path.GetRelativePath(sourceRoot, f.AbsPath).Replace('\\', '/'));
+            else
+                dryFiles = FileSelector.SelectFiles(sourceRoot, project.Include, project.Exclude)
+                    .Where(p => string.Equals(Path.GetExtension(p), ".php", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => Path.GetRelativePath(sourceRoot, p).Replace('\\', '/'));
+            int dryCount = 0;
+            foreach (var rel in dryFiles) { Console.WriteLine($"[DRY-RUN] würde verschlüsseln: {rel}"); dryCount++; }
+            Console.WriteLine($"[DRY-RUN] {dryCount} Datei(en) würden verschlüsselt. Nichts wurde geschrieben.");
+            return;
+        }
 
         Directory.CreateDirectory(outputRoot);
 

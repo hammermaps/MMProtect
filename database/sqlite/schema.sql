@@ -123,7 +123,8 @@ CREATE TABLE IF NOT EXISTS runtime_leases (
   issued_at     TEXT NOT NULL,
   expires_at    TEXT NOT NULL,
   grace_until   TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'issued' CHECK(status IN ('issued','revoked','expired')),
+  status          TEXT NOT NULL DEFAULT 'issued' CHECK(status IN ('issued','revoked','expired')),
+  lease_signature TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
