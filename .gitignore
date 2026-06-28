@@ -51,8 +51,8 @@ appsettings.Development.json
 .DS_Store
 
 # AI
-.claude
-.gstack
+.claude/
+.gstack/
 
 # Admin UI — node_modules and Vite build output (built into wwwroot by script)
 src/AdminUi/node_modules/
