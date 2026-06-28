@@ -9,6 +9,7 @@
 #include "Zend/zend_extensions.h"
 #include "main/SAPI.h"
 #include "php_mmloader.h"
+#include "mmloader_zend.h"
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -47,11 +48,9 @@ static void   mmloader_mark_file_protected(const char *filename);
  * Module globals
  * ==================================================================== */
 
-typedef zend_op_array *(*mmloader_compile_file_t)(zend_file_handle *, int);
-static mmloader_compile_file_t mmloader_original_compile_file_ptr = NULL;
-
-/* Week 4: execute_ex hook for OPcache guard */
-static void (*mmloader_original_execute_ex)(zend_execute_data *) = NULL;
+/* Saved originals — restored in MSHUTDOWN */
+static mm_compile_file_fn s_orig_compile_file = NULL;
+static mm_execute_fn      s_orig_execute_ex   = NULL;
 
 ZEND_BEGIN_MODULE_GLOBALS(mmloader)
     zend_bool  enabled;
@@ -521,6 +520,11 @@ static void mmloader_cache_path(const char *build_id, char *out, size_t out_len)
              MMLOADER_G(cache_dir), hex);
 }
 
+static void mm_cache_write_feature_cb(const char *name, void *ud)
+{
+    cJSON_AddItemToArray((cJSON *)ud, cJSON_CreateString(name));
+}
+
 static void mmloader_cache_write(const char *build_id,
                                   const unsigned char *key,
                                   time_t expires_at, time_t grace_until)
@@ -543,11 +547,7 @@ static void mmloader_cache_write(const char *build_id,
     /* Persist feature set so offline-grace runs can restore mmprotect_has_feature() */
     if (MMLOADER_G(lease_features)) {
         cJSON *farr = cJSON_AddArrayToObject(obj, "features");
-        zend_string *feat_key;
-        ZEND_HASH_FOREACH_STR_KEY(MMLOADER_G(lease_features), feat_key) {
-            if (feat_key)
-                cJSON_AddItemToArray(farr, cJSON_CreateString(ZSTR_VAL(feat_key)));
-        } ZEND_HASH_FOREACH_END();
+        mm_features_each(MMLOADER_G(lease_features), mm_cache_write_feature_cb, farr);
     }
     char *json = cJSON_PrintUnformatted(obj);
     cJSON_Delete(obj);
@@ -613,19 +613,12 @@ static int mmloader_cache_read(const char *build_id,
     /* Restore feature set so mmprotect_has_feature() works during offline grace */
     cJSON *j_feat = cJSON_GetObjectItemCaseSensitive(obj, "features");
     if (cJSON_IsArray(j_feat)) {
-        if (MMLOADER_G(lease_features)) {
-            zend_hash_destroy(MMLOADER_G(lease_features));
-            pefree(MMLOADER_G(lease_features), 1);
-        }
-        MMLOADER_G(lease_features) = (HashTable *)pemalloc(sizeof(HashTable), 1);
-        zend_hash_init(MMLOADER_G(lease_features),
-                       (uint32_t)cJSON_GetArraySize(j_feat), NULL, NULL, 1);
+        mm_features_reset(&MMLOADER_G(lease_features),
+                          (uint32_t)cJSON_GetArraySize(j_feat));
         cJSON *fitem;
         cJSON_ArrayForEach(fitem, j_feat) {
             if (cJSON_IsString(fitem) && fitem->valuestring)
-                zend_hash_str_add_empty_element(
-                    MMLOADER_G(lease_features),
-                    fitem->valuestring, strlen(fitem->valuestring));
+                mm_features_add(MMLOADER_G(lease_features), fitem->valuestring);
         }
     }
 
@@ -813,21 +806,12 @@ static int mmloader_post_lease(const char *body, const char *build_id,
     /* Extract feature set from lease response and store persistently */
     cJSON *j_features = cJSON_GetObjectItemCaseSensitive(json, "features");
     if (cJSON_IsArray(j_features)) {
-        if (MMLOADER_G(lease_features)) {
-            zend_hash_destroy(MMLOADER_G(lease_features));
-            pefree(MMLOADER_G(lease_features), 1);
-        }
-        MMLOADER_G(lease_features) = (HashTable *)pemalloc(sizeof(HashTable), 1);
-        zend_hash_init(MMLOADER_G(lease_features),
-                       (uint32_t)cJSON_GetArraySize(j_features), NULL, NULL, 1);
+        mm_features_reset(&MMLOADER_G(lease_features),
+                          (uint32_t)cJSON_GetArraySize(j_features));
         cJSON *item;
         cJSON_ArrayForEach(item, j_features) {
-            if (cJSON_IsString(item) && item->valuestring) {
-                zend_hash_str_add_empty_element(
-                    MMLOADER_G(lease_features),
-                    item->valuestring,
-                    strlen(item->valuestring));
-            }
+            if (cJSON_IsString(item) && item->valuestring)
+                mm_features_add(MMLOADER_G(lease_features), item->valuestring);
         }
     }
 
@@ -1001,9 +985,7 @@ static int mmloader_get_or_fetch_runtime_key(const char *build_id,
 
 static void mmloader_mark_file_protected(const char *filename)
 {
-    if (!MMLOADER_G(protected_files) || !filename) return;
-    zend_hash_str_add_empty_element(MMLOADER_G(protected_files),
-                                    filename, strlen(filename));
+    mm_protected_mark(MMLOADER_G(protected_files), filename);
 }
 
 /* ====================================================================
@@ -1022,9 +1004,9 @@ static int mmloader_is_mmenc1_file(const char *filename)
     size_t fname_len = strlen(filename);
 
     /* Per-process cache lookup */
-    zval *cached = zend_hash_str_find(MMLOADER_G(file_magic_cache),
-                                       filename, fname_len);
-    if (cached) return Z_LVAL_P(cached) == 1;
+    int cached = mm_magic_cache_lookup(MMLOADER_G(file_magic_cache),
+                                        filename, fname_len);
+    if (cached >= 0) return cached;
 
     /* Open file and read magic */
     int is_mmenc1 = 0;
@@ -1036,10 +1018,7 @@ static int mmloader_is_mmenc1_file(const char *filename)
         fclose(fp);
     }
 
-    /* Cache the result for this process */
-    zval v;
-    ZVAL_LONG(&v, is_mmenc1);
-    zend_hash_str_add(MMLOADER_G(file_magic_cache), filename, fname_len, &v);
+    mm_magic_cache_store(MMLOADER_G(file_magic_cache), filename, fname_len, is_mmenc1);
 
     return is_mmenc1;
 }
@@ -1062,45 +1041,40 @@ static int mmloader_is_mmenc1_file(const char *filename)
  */
 static void mmloader_execute_ex_hook(zend_execute_data *execute_data)
 {
-    if (MMLOADER_G(enabled) && execute_data && execute_data->func) {
-        zend_function *func = execute_data->func;
+    const char *filename;
+    if (MMLOADER_G(enabled) &&
+        (filename = mm_execute_data_source_path(execute_data)) != NULL) {
 
-        if (func->type == ZEND_USER_FUNCTION && func->op_array.filename) {
-            const char *filename = ZSTR_VAL(func->op_array.filename);
-
-            if (mmloader_is_mmenc1_file(filename)) {
-                /* Is this file authorised by mmloader in this process? */
-                if (!MMLOADER_G(protected_files) ||
-                    !zend_hash_str_exists(MMLOADER_G(protected_files),
-                                          filename, strlen(filename))) {
-                    /* Not yet in protected set.
-                     * Could be an OPcache cache hit in a fresh FPM worker.
-                     * Accept if we have a valid RAM lease and mark it. */
-                    if (MMLOADER_G(has_cached_key)) {
-                        mmloader_mark_file_protected(filename);
-                    } else {
-                        zend_error(E_ERROR,
-                            "MMENC: execution of unverified protected file blocked: %s",
-                            filename);
-                        return;
-                    }
+        if (mmloader_is_mmenc1_file(filename)) {
+            /* Is this file authorised by mmloader in this process? */
+            if (!mm_protected_check(MMLOADER_G(protected_files), filename)) {
+                /* Not yet in protected set.
+                 * Could be an OPcache cache hit in a fresh FPM worker.
+                 * Accept if we have a valid RAM lease and mark it. */
+                if (MMLOADER_G(has_cached_key)) {
+                    mmloader_mark_file_protected(filename);
+                } else {
+                    zend_error(E_ERROR,
+                        "MMENC: execution of unverified protected file blocked: %s",
+                        filename);
+                    return;
                 }
+            }
 
-                /* Enforce lease expiry even for cached op_arrays */
-                if (MMLOADER_G(cached_lease_expires) > 0) {
-                    time_t now = time(NULL);
-                    if (now > MMLOADER_G(cached_lease_grace)) {
-                        zend_error(E_ERROR,
-                            "MMENC: lease expired and grace period exceeded "
-                            "— blocking %s", filename);
-                        return;
-                    }
+            /* Enforce lease expiry even for cached op_arrays */
+            if (MMLOADER_G(cached_lease_expires) > 0) {
+                time_t now = time(NULL);
+                if (now > MMLOADER_G(cached_lease_grace)) {
+                    zend_error(E_ERROR,
+                        "MMENC: lease expired and grace period exceeded "
+                        "— blocking %s", filename);
+                    return;
                 }
             }
         }
     }
 
-    mmloader_original_execute_ex(execute_data);
+    s_orig_execute_ex(execute_data);
 }
 
 /* ====================================================================
@@ -1285,7 +1259,7 @@ static zend_string *mmloader_decrypt_from_fp(FILE *fp, const char *filename)
         pt_len = (size_t)orig_size;
     }
 
-    result = zend_string_init((const char *)plaintext, pt_len, 0);
+    result = mm_zstr_new((const char *)plaintext, pt_len);
     ZEND_SECURE_ZERO(plaintext, plain_alloc_len);
     efree(plaintext); plaintext = NULL;
     plain_alloc_len = 0;
@@ -1307,18 +1281,18 @@ cleanup:
 static zend_op_array *mmloader_compile_file(zend_file_handle *file_handle, int type)
 {
     if (!MMLOADER_G(enabled))
-        return mmloader_original_compile_file_ptr(file_handle, type);
+        return s_orig_compile_file(file_handle, type);
 
-    const char *filename = ZSTR_VAL(file_handle->filename);
+    const char *filename = mm_file_handle_path(file_handle);
 
     FILE *fp = fopen(filename, "rb");
     if (!fp)
-        return mmloader_original_compile_file_ptr(file_handle, type);
+        return s_orig_compile_file(file_handle, type);
 
     char magic[7];
     if (fread(magic, 1, 7, fp) != 7 || memcmp(magic, "MMENC1\n", 7) != 0) {
         fclose(fp);
-        return mmloader_original_compile_file_ptr(file_handle, type);
+        return s_orig_compile_file(file_handle, type);
     }
 
     zend_string *plain = mmloader_decrypt_from_fp(fp, filename);
@@ -1330,11 +1304,9 @@ static zend_op_array *mmloader_compile_file(zend_file_handle *file_handle, int t
         return NULL;
     }
 
-    zend_op_array *op_array = zend_compile_string(
-        plain, (char *)filename, ZEND_COMPILE_POSITION_AT_OPEN_TAG);
+    zend_op_array *op_array = mm_compile_plaintext(plain, filename);
 
-    ZEND_SECURE_ZERO(ZSTR_VAL(plain), ZSTR_LEN(plain));
-    zend_string_release(plain);
+    mm_zstr_secure_release(plain);
 
     if (op_array) mmloader_mark_file_protected(filename);
 
@@ -1415,13 +1387,9 @@ PHP_MINIT_FUNCTION(mmloader)
 #endif
     }
 
-    /* Initialise persistent protected-files set */
-    MMLOADER_G(protected_files) = pemalloc(sizeof(HashTable), 1);
-    zend_hash_init(MMLOADER_G(protected_files), 64, NULL, NULL, 1);
-
-    /* Week 4: initialise MMENC1 magic cache */
-    MMLOADER_G(file_magic_cache) = pemalloc(sizeof(HashTable), 1);
-    zend_hash_init(MMLOADER_G(file_magic_cache), 64, NULL, ZVAL_PTR_DTOR, 1);
+    /* Initialise persistent protected-files set and MMENC1 magic cache */
+    mm_protected_init(&MMLOADER_G(protected_files));
+    mm_magic_cache_init(&MMLOADER_G(file_magic_cache));
 
     /* libcurl */
     if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
@@ -1435,28 +1403,18 @@ PHP_MINIT_FUNCTION(mmloader)
         return FAILURE;
     }
 
-    /* Hook compile_file */
-    mmloader_original_compile_file_ptr = (mmloader_compile_file_t)zend_compile_file;
-    zend_compile_file = mmloader_compile_file;
-
-    /* Week 4: hook execute_ex for OPcache guard */
-    mmloader_original_execute_ex = zend_execute_ex;
-    zend_execute_ex = mmloader_execute_ex_hook;
+    /* Install engine hooks */
+    s_orig_compile_file = mm_hook_compile_file(mmloader_compile_file);
+    s_orig_execute_ex   = mm_hook_execute_ex(mmloader_execute_ex_hook);
 
     return SUCCESS;
 }
 
 PHP_MSHUTDOWN_FUNCTION(mmloader)
 {
-    /* Restore hooks */
-    if (mmloader_original_compile_file_ptr) {
-        zend_compile_file = mmloader_original_compile_file_ptr;
-        mmloader_original_compile_file_ptr = NULL;
-    }
-    if (mmloader_original_execute_ex) {
-        zend_execute_ex = mmloader_original_execute_ex;
-        mmloader_original_execute_ex = NULL;
-    }
+    /* Restore engine hooks */
+    mm_unhook_compile_file(s_orig_compile_file); s_orig_compile_file = NULL;
+    mm_unhook_execute_ex(s_orig_execute_ex);     s_orig_execute_ex   = NULL;
 
     ZEND_SECURE_ZERO(MMLOADER_G(cached_runtime_key),
                      sizeof(MMLOADER_G(cached_runtime_key)));
@@ -1466,23 +1424,9 @@ PHP_MSHUTDOWN_FUNCTION(mmloader)
         MMLOADER_G(cached_build_id) = NULL;
     }
 
-    if (MMLOADER_G(protected_files)) {
-        zend_hash_destroy(MMLOADER_G(protected_files));
-        pefree(MMLOADER_G(protected_files), 1);
-        MMLOADER_G(protected_files) = NULL;
-    }
-
-    if (MMLOADER_G(file_magic_cache)) {
-        zend_hash_destroy(MMLOADER_G(file_magic_cache));
-        pefree(MMLOADER_G(file_magic_cache), 1);
-        MMLOADER_G(file_magic_cache) = NULL;
-    }
-
-    if (MMLOADER_G(lease_features)) {
-        zend_hash_destroy(MMLOADER_G(lease_features));
-        pefree(MMLOADER_G(lease_features), 1);
-        MMLOADER_G(lease_features) = NULL;
-    }
+    mm_protected_destroy(&MMLOADER_G(protected_files));
+    mm_magic_cache_destroy(&MMLOADER_G(file_magic_cache));
+    mm_features_destroy(&MMLOADER_G(lease_features));
 
     if (s_signing_public_key) {
         EVP_PKEY_free(s_signing_public_key);
@@ -1577,10 +1521,7 @@ PHP_FUNCTION(mmprotect_has_feature)
         Z_PARAM_STRING(feature, feature_len)
     ZEND_PARSE_PARAMETERS_END();
 
-    if (!MMLOADER_G(lease_features) || feature_len == 0) {
-        RETURN_FALSE;
-    }
-    RETURN_BOOL(zend_hash_str_exists(MMLOADER_G(lease_features), feature, feature_len));
+    RETURN_BOOL(mm_features_has(MMLOADER_G(lease_features), feature, feature_len));
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_mmprotect_has_feature, 0, 1, _IS_BOOL, 0)
