@@ -4,13 +4,15 @@ namespace MmProtect.EncoderCli.Encoding;
 
 /// <summary>
 /// Two-pass PHP source obfuscator.
-/// Pass 1: scan with a state machine to collect all user-defined variable names.
+/// Pass 1: scan with a state machine to collect all user-defined variable names
+///         that appear outside class-level property declarations.
 /// Pass 2: re-scan with the same state machine, emitting transformed output:
 ///   - line comments (// and #) stripped
 ///   - block comments (/* ... */) stripped
 ///   - runs of spaces/tabs collapsed to a single space
 ///   - runs of newlines collapsed to a single newline
-///   - user-defined variable names renamed to short names ($_a, $_b, ...)
+///   - user-defined variable names (method-scope / global-scope) renamed to short names ($_a, $_b, ...)
+///   - class property declarations are NOT renamed (renaming them breaks ->propname access)
 ///   - single-quoted strings and nowdoc strings emitted verbatim
 ///   - double-quoted strings and heredoc strings have variables renamed inside them
 ///   - variable-variables ($$foo) are emitted as-is
@@ -29,6 +31,19 @@ public static class PhpObfuscator
         "_"
     };
 
+    // Keywords that introduce a class/trait/interface/enum body.
+    private static readonly HashSet<string> ClassKeywords = new(StringComparer.Ordinal)
+    {
+        "class", "trait", "interface", "enum"
+    };
+
+    // Visibility/promotion modifiers: when seen inside parameter lists (parenDepth > 0)
+    // they indicate constructor property promotion — the next $variable must not be renamed.
+    private static readonly HashSet<string> VisibilityKeywords = new(StringComparer.Ordinal)
+    {
+        "private", "protected", "public", "readonly"
+    };
+
     private enum ParseState
     {
         Code,
@@ -44,7 +59,7 @@ public static class PhpObfuscator
 
     public static string Obfuscate(string phpSource)
     {
-        // Pass 1: collect variable names
+        // Pass 1: collect variable names (excluding class-level property declarations)
         var varNames = CollectVariables(phpSource);
 
         // Build rename map: sort alphabetically, assign _a, _b, ...
@@ -101,6 +116,20 @@ public static class PhpObfuscator
         return ProtectedVars.Contains(name) ? null : name;
     }
 
+    // ── Class body scope tracking helpers ─────────────────────────────────────
+
+    /// <summary>
+    /// Returns true when <paramref name="braceDepth"/> is exactly at the class
+    /// body level (i.e., directly inside a class/trait/interface/enum body,
+    /// not inside any method or nested block) and we are not inside parentheses.
+    /// Variables here are class property declarations and must NOT be renamed.
+    /// </summary>
+    private static bool IsAtClassPropertyLevel(
+        Stack<int> classBodyStack, int braceDepth, int parenDepth) =>
+        classBodyStack.Count > 0 &&
+        braceDepth == classBodyStack.Peek() &&
+        parenDepth == 0;
+
     // ── Pass 1: variable collection ───────────────────────────────────────────
 
     private static HashSet<string> CollectVariables(string src)
@@ -111,6 +140,13 @@ public static class PhpObfuscator
         var state = ParseState.Code;
         string heredocLabel = "";
         bool atLineStart = true;
+
+        // Class body scope tracking
+        var classBodyStack = new Stack<int>();
+        bool pendingClassOpen = false;
+        bool pendingPropertyPromotion = false; // true after private/protected/public/readonly inside (...)
+        int braceDepth = 0;
+        int parenDepth = 0;
 
         while (i < len)
         {
@@ -163,12 +199,63 @@ public static class PhpObfuscator
                         if (i < len) i++; // consume the newline
                         atLineStart = true;
                     }
+                    else if (c == '{')
+                    {
+                        if (pendingClassOpen)
+                        {
+                            classBodyStack.Push(braceDepth + 1);
+                            pendingClassOpen = false;
+                        }
+                        braceDepth++;
+                        i++;
+                    }
+                    else if (c == '}')
+                    {
+                        braceDepth--;
+                        if (classBodyStack.Count > 0 && braceDepth < classBodyStack.Peek())
+                            classBodyStack.Pop();
+                        i++;
+                    }
+                    else if (c == '(')
+                    {
+                        parenDepth++;
+                        i++;
+                    }
+                    else if (c == ')')
+                    {
+                        parenDepth--;
+                        pendingPropertyPromotion = false;
+                        i++;
+                    }
+                    else if (IsVarStart(c))
+                    {
+                        // Read full identifier to detect class-defining keywords
+                        int wordStart = i;
+                        while (i < len && IsVarPart(src[i])) i++;
+                        var word = src[wordStart..i];
+                        if (ClassKeywords.Contains(word))
+                        {
+                            // ::class is a class-name-resolution expression, not a declaration
+                            bool isPrecededByColons = wordStart >= 2 &&
+                                src[wordStart - 1] == ':' && src[wordStart - 2] == ':';
+                            if (!isPrecededByColons)
+                                pendingClassOpen = true;
+                        }
+                        else if (parenDepth > 0 && VisibilityKeywords.Contains(word))
+                            pendingPropertyPromotion = true;
+                        // Don't add identifiers to variable set (they're not variables)
+                    }
                     else if (c == '$')
                     {
                         var name = TryReadVar(src, i);
                         if (name != null)
                         {
-                            result.Add(name);
+                            // Only collect if NOT at class property declaration level
+                            // and NOT a constructor promoted property
+                            if (!IsAtClassPropertyLevel(classBodyStack, braceDepth, parenDepth)
+                                && !pendingPropertyPromotion)
+                                result.Add(name);
+                            pendingPropertyPromotion = false;
                             i += 1 + name.Length;
                         }
                         else
@@ -291,6 +378,13 @@ public static class PhpObfuscator
         bool lastWasSpace = false;
         bool lastWasNewline = false;
 
+        // Class body scope tracking
+        var classBodyStack = new Stack<int>();
+        bool pendingClassOpen = false;
+        bool pendingPropertyPromotion = false; // true after private/protected/public/readonly inside (...)
+        int braceDepth = 0;
+        int parenDepth = 0;
+
         while (i < len)
         {
             char c = src[i];
@@ -353,6 +447,61 @@ public static class PhpObfuscator
                         atLineStart = true;
                         lastWasSpace = lastWasNewline = false;
                     }
+                    else if (c == '{')
+                    {
+                        if (pendingClassOpen)
+                        {
+                            classBodyStack.Push(braceDepth + 1);
+                            pendingClassOpen = false;
+                        }
+                        braceDepth++;
+                        sb.Append('{');
+                        lastWasSpace = lastWasNewline = false;
+                        i++;
+                    }
+                    else if (c == '}')
+                    {
+                        braceDepth--;
+                        if (classBodyStack.Count > 0 && braceDepth < classBodyStack.Peek())
+                            classBodyStack.Pop();
+                        sb.Append('}');
+                        lastWasSpace = lastWasNewline = false;
+                        i++;
+                    }
+                    else if (c == '(')
+                    {
+                        parenDepth++;
+                        sb.Append('(');
+                        lastWasSpace = lastWasNewline = false;
+                        i++;
+                    }
+                    else if (c == ')')
+                    {
+                        parenDepth--;
+                        pendingPropertyPromotion = false;
+                        sb.Append(')');
+                        lastWasSpace = lastWasNewline = false;
+                        i++;
+                    }
+                    else if (IsVarStart(c))
+                    {
+                        // Read full identifier; detect class-defining keywords and visibility modifiers
+                        int wordStart = i;
+                        while (i < len && IsVarPart(src[i])) i++;
+                        var word = src[wordStart..i];
+                        if (ClassKeywords.Contains(word))
+                        {
+                            // ::class is a class-name-resolution expression, not a declaration
+                            bool isPrecededByColons = wordStart >= 2 &&
+                                src[wordStart - 1] == ':' && src[wordStart - 2] == ':';
+                            if (!isPrecededByColons)
+                                pendingClassOpen = true;
+                        }
+                        else if (parenDepth > 0 && VisibilityKeywords.Contains(word))
+                            pendingPropertyPromotion = true;
+                        sb.Append(word);
+                        lastWasSpace = lastWasNewline = false;
+                    }
                     else if (c == '$')
                     {
                         // Variable-variable: next char is also '$'
@@ -369,8 +518,13 @@ public static class PhpObfuscator
                             var name = TryReadVar(src, i);
                             if (name != null)
                             {
+                                bool atPropLevel = IsAtClassPropertyLevel(classBodyStack, braceDepth, parenDepth);
                                 sb.Append('$');
-                                sb.Append(renameMap.TryGetValue(name, out var renamed) ? renamed : name);
+                                if (atPropLevel || pendingPropertyPromotion)
+                                    sb.Append(name); // property declaration or promoted property: keep original name
+                                else
+                                    sb.Append(renameMap.TryGetValue(name, out var renamed) ? renamed : name);
+                                pendingPropertyPromotion = false;
                                 i += 1 + name.Length;
                             }
                             else

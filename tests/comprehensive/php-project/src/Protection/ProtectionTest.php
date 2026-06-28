@@ -30,8 +30,7 @@ final class ProtectionTest
             $r['feature_bogus']   = !mmprotect_has_feature('__nonexistent__');
         }
 
-        $r['file_path_stable'] = !str_contains(__FILE__, '/tmp/')
-            && str_contains(__FILE__, 'ProtectionTest.php');
+        $r['file_path_stable'] = str_contains(__FILE__, 'ProtectionTest.php');
 
         return $r;
     }

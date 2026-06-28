@@ -540,6 +540,15 @@ static void mmloader_cache_write(const char *build_id,
     cJSON_AddStringToObject(obj, "runtimeKey", key_b64);
     cJSON_AddNumberToObject(obj, "expiresAt",  (double)expires_at);
     cJSON_AddNumberToObject(obj, "graceUntil", (double)grace_until);
+    /* Persist feature set so offline-grace runs can restore mmprotect_has_feature() */
+    if (MMLOADER_G(lease_features)) {
+        cJSON *farr = cJSON_AddArrayToObject(obj, "features");
+        zend_string *feat_key;
+        ZEND_HASH_FOREACH_STR_KEY(MMLOADER_G(lease_features), feat_key) {
+            if (feat_key)
+                cJSON_AddItemToArray(farr, cJSON_CreateString(ZSTR_VAL(feat_key)));
+        } ZEND_HASH_FOREACH_END();
+    }
     char *json = cJSON_PrintUnformatted(obj);
     cJSON_Delete(obj);
 
@@ -600,6 +609,26 @@ static int mmloader_cache_read(const char *build_id,
 
     *expires_out = (time_t)j_expires->valuedouble;
     *grace_out   = grace;
+
+    /* Restore feature set so mmprotect_has_feature() works during offline grace */
+    cJSON *j_feat = cJSON_GetObjectItemCaseSensitive(obj, "features");
+    if (cJSON_IsArray(j_feat)) {
+        if (MMLOADER_G(lease_features)) {
+            zend_hash_destroy(MMLOADER_G(lease_features));
+            pefree(MMLOADER_G(lease_features), 1);
+        }
+        MMLOADER_G(lease_features) = (HashTable *)pemalloc(sizeof(HashTable), 1);
+        zend_hash_init(MMLOADER_G(lease_features),
+                       (uint32_t)cJSON_GetArraySize(j_feat), NULL, NULL, 1);
+        cJSON *fitem;
+        cJSON_ArrayForEach(fitem, j_feat) {
+            if (cJSON_IsString(fitem) && fitem->valuestring)
+                zend_hash_str_add_empty_element(
+                    MMLOADER_G(lease_features),
+                    fitem->valuestring, strlen(fitem->valuestring));
+        }
+    }
+
     ok = 1;
 
 done:

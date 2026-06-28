@@ -633,11 +633,18 @@ app.MapPost("/api/v1/runtime/lease", async (
     var graceUntil = expiresAt.AddDays(graceDays);
     var leaseUid = "lease_" + Ids.NewId();
 
+    var runtimeKey = crypto.UnprotectBuildKey(row.EncryptedSecretKey);
+    // Use JsonSerializer to format expiresAt identically to how it appears in the JSON response.
+    // DateTimeOffset "O" format always emits 7 fractional digits; System.Text.Json trims trailing
+    // zeros → mismatched strings → ECDSA verification failure in mmloader.
+    var expiresAtJson = System.Text.Json.JsonSerializer.Serialize(expiresAt).Trim('"');
+    var signature  = crypto.SignLease($"{leaseUid}:{request.BuildId}:{request.MachineFingerprint}:{expiresAtJson}");
+
     await conn.ExecuteAsync("""
         INSERT INTO runtime_leases
-            (lease_uid, license_id, build_id, activation_id, nonce, issued_at, expires_at, grace_until)
+            (lease_uid, license_id, build_id, activation_id, nonce, issued_at, expires_at, grace_until, lease_signature)
         VALUES
-            (@LeaseUid, @LicenseDbId, @BuildDbId, @ActivationDbId, @Nonce, @IssuedAt, @ExpiresAt, @GraceUntil);
+            (@LeaseUid, @LicenseDbId, @BuildDbId, @ActivationDbId, @Nonce, @IssuedAt, @ExpiresAt, @GraceUntil, @LeaseSignature);
         """, new
     {
         LeaseUid = leaseUid,
@@ -647,11 +654,9 @@ app.MapPost("/api/v1/runtime/lease", async (
         request.Nonce,
         IssuedAt = issuedAt.UtcDateTime,
         ExpiresAt = expiresAt.UtcDateTime,
-        GraceUntil = graceUntil.UtcDateTime
+        GraceUntil = graceUntil.UtcDateTime,
+        LeaseSignature = signature
     });
-
-    var runtimeKey = crypto.UnprotectBuildKey(row.EncryptedSecretKey);
-    var signature  = crypto.SignLease($"{leaseUid}:{request.BuildId}:{request.MachineFingerprint}:{expiresAt:O}");
     var features   = ParseFeaturesJson(row.FeaturesJson);
 
     await audit.LogAsync("loader", "lease_granted", "license", row.LicenseUid, clientIp,

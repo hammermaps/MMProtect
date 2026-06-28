@@ -15,10 +15,34 @@ final class CurlTest
             return ['curl_skipped' => true];
         }
 
+        $url  = rtrim($this->licenseServerUrl, '/') . '/health';
+
+        // Quick reachability probe — skip all tests if server is offline.
+        $probe = curl_init($url);
+        curl_setopt_array($probe, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 2,
+            CURLOPT_CONNECTTIMEOUT => 1,
+            CURLOPT_NOBODY         => true,
+        ]);
+        curl_exec($probe);
+        $probeCode = curl_getinfo($probe, CURLINFO_HTTP_CODE);
+        $probeErr  = curl_error($probe);
+        curl_close($probe);
+
+        if ($probeCode === 0) {
+            return [
+                'health_reachable'   => 'skip: server offline',
+                'health_json_status' => 'skip: server offline',
+                'health_has_db'      => 'skip: server offline',
+                'curl_info_fields'   => 'skip: server offline',
+                'curl_multi'         => 'skip: server offline',
+            ];
+        }
+
         $r = [];
 
         // ── Health endpoint (GET) ──────────────────────────────────────────
-        $url  = rtrim($this->licenseServerUrl, '/') . '/health';
         $ch   = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
