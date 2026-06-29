@@ -41,6 +41,9 @@ src/PhpDecoderLoader/vendor/cjson/*.lo
 *.env
 appsettings.Development.json
 **/dev-buildkey.b64
+*.pem
+scripts/linux/keys/
+scripts/windows/keys/
 
 # IDE
 .idea/
