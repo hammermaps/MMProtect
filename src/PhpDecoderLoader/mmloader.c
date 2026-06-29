@@ -43,6 +43,7 @@ static int    mmloader_read_json_file(const char *path, cJSON **out);
 static char  *mmloader_base64_encode(const unsigned char *data, size_t len);
 static int    mmloader_is_mmenc1_file(const char *filename);
 static void   mmloader_mark_file_protected(const char *filename);
+static void   mmloader_send_telemetry(const char *event_type, const char *build_id);
 
 /* ====================================================================
  * Module globals
