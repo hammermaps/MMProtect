@@ -1937,7 +1937,8 @@ PHP_FUNCTION(mmprotect_license_info)
     if (MMLOADER_G(cached_lease_expires) > 0) {
         char ts[32];
         time_t exp = MMLOADER_G(cached_lease_expires);
-        struct tm *t = gmtime(&exp);
+        struct tm tm_buf;
+        struct tm *t = gmtime_r(&exp, &tm_buf);
         if (t) {
             strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", t);
             add_assoc_string(return_value, "leaseExpiresAt", ts);
