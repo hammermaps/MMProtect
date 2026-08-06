@@ -159,6 +159,10 @@ Response:
 }
 ```
 
+Die Registrierung darf für einen Build mehrfach aufgerufen werden. Encoder
+senden große Dateilisten in Batches von höchstens 100 Dateien; die Registrierung
+ist pro `fileId` idempotent.
+
 ### POST /api/v1/encoder/builds/{buildId}/manifest/sign
 
 Request:

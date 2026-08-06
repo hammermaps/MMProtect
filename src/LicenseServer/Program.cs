@@ -410,9 +410,15 @@ encoder.MapPost("/builds/{buildId}/files", async (string buildId, BuildFilesRequ
         });
     }
 
+    // Files arrive in idempotent batches. Count the stored rows rather than only
+    // the current request, otherwise builds with more than one batch show the
+    // size of their final batch as their file count.
+    var totalFileCount = await conn.ExecuteScalarAsync<int>(
+        "SELECT COUNT(*) FROM build_files WHERE build_id = @BuildDbId", new { BuildDbId = buildDbId });
+
     await conn.ExecuteAsync(
         "UPDATE builds SET file_count = @FileCount, status = 'files_registered' WHERE id = @BuildDbId",
-        new { FileCount = request.Files.Count, BuildDbId = buildDbId });
+        new { FileCount = totalFileCount, BuildDbId = buildDbId });
 
     return Results.Ok(new { accepted = request.Files.Count, rejected = 0 });
 });

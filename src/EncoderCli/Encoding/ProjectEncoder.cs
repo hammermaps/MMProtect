@@ -7,6 +7,9 @@ namespace MmProtect.EncoderCli.Encoding;
 
 public sealed class ProjectEncoder
 {
+    // Keeps every registration request comfortably below common reverse-proxy limits.
+    // The server endpoint is idempotent, so retrying a batch is safe.
+    private const int FileRegistrationBatchSize = 100;
     private readonly LicenseServerClient _client;
 
     public ProjectEncoder(LicenseServerClient client)
@@ -208,19 +211,11 @@ public sealed class ProjectEncoder
                 Console.WriteLine($"encoded: {relative}");
         }
 
-        await _client.RegisterFilesAsync(build.BuildId, new
-        {
-            files = manifestFiles.Select(f => new
-            {
-                fileId = f.FileId,
-                relativePath = f.RelativePath,
-                pathHash = f.PathHash,
-                plainHash = f.PlainHash,
-                cipherHash = f.CipherHash,
-                algorithm = f.Algorithm,
-                kdf = f.Kdf
-            }).ToArray()
-        });
+        var registrations = manifestFiles.Select(f => new FileRegistrationDto(
+            f.FileId, f.RelativePath, f.PathHash, f.PlainHash, f.CipherHash, f.Algorithm, f.Kdf)).ToArray();
+
+        foreach (var batch in registrations.Chunk(FileRegistrationBatchSize))
+            await _client.RegisterFilesAsync(build.BuildId, batch);
 
         var manifest = new ManifestDto(
             "MMENC-MANIFEST-1",

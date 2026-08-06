@@ -152,13 +152,41 @@ public sealed class SmokeTests : IDisposable
             });
         fileResp.EnsureSuccessStatusCode();
 
+        // Large projects are registered in batches. The build metadata must
+        // reflect all persisted files, not merely the final request.
+        var secondBatchResp = await _client.PostAsJsonAsync(
+            $"/api/v1/encoder/builds/{build.BuildId}/files", new
+            {
+                files = new[]
+                {
+                    new
+                    {
+                        fileId = "file_abc002",
+                        relativePath = "src/App/Second.php",
+                        pathHash = "sha256:bbccdd",
+                        plainHash = "sha256:223344",
+                        cipherHash = "sha256:556677",
+                        algorithm = "AES-256-GCM",
+                        kdf = "HKDF-SHA256"
+                    }
+                }
+            });
+        secondBatchResp.EnsureSuccessStatusCode();
+
+        await using (var db = new SqliteConnection($"Data Source={_dbPath}"))
+        {
+            var registeredCount = await db.ExecuteScalarAsync<int>(
+                "SELECT file_count FROM builds WHERE build_uid = @BuildId", new { build.BuildId });
+            Assert.Equal(2, registeredCount);
+        }
+
         // Sign manifest
         var manifestHash = "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(new byte[] { 1, 2, 3 })).ToLowerInvariant();
         var signResp = await PostJsonAsync<ManifestSignDto>(
             $"/api/v1/encoder/builds/{build.BuildId}/manifest/sign", new
             {
                 manifestHash,
-                fileCount = 1
+                fileCount = 2
             });
 
         Assert.False(string.IsNullOrEmpty(signResp.ManifestSignature));

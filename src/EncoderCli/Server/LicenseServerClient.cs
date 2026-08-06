@@ -26,8 +26,8 @@ public sealed class LicenseServerClient
     public async Task<BuildStartResponse> StartBuildAsync(object request)
         => await PostAsync<BuildStartResponse>("api/v1/encoder/builds/start", request);
 
-    public async Task RegisterFilesAsync(string buildId, object request)
-        => await PostAsync<JsonElement>($"api/v1/encoder/builds/{Uri.EscapeDataString(buildId)}/files", request);
+    public async Task RegisterFilesAsync(string buildId, IReadOnlyCollection<FileRegistrationDto> files)
+        => await PostAsync<JsonElement>($"api/v1/encoder/builds/{Uri.EscapeDataString(buildId)}/files", new { files });
 
     public async Task<ManifestSignResponse> SignManifestAsync(string buildId, object request)
         => await PostAsync<ManifestSignResponse>($"api/v1/encoder/builds/{Uri.EscapeDataString(buildId)}/manifest/sign", request);
@@ -75,3 +75,11 @@ public sealed record ProjectUpsertResponse(string ProjectId, bool Created);
 public sealed record LicenseUpsertResponse(string LicenseId, bool Created);
 public sealed record BuildStartResponse(string BuildId, string KeyId, string BuildKey, string ManifestSalt);
 public sealed record ManifestSignResponse(string ManifestSignature, string VendorPublicKeyId, DateTimeOffset ServerTimeUtc);
+public sealed record FileRegistrationDto(
+    string FileId,
+    string RelativePath,
+    string PathHash,
+    string PlainHash,
+    string CipherHash,
+    string Algorithm,
+    string Kdf);
