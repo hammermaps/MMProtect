@@ -433,6 +433,14 @@ Response:
 }
 ```
 
+### GET /api/v1/admin/signing-key-archive
+
+Lädt `mmprotect-signing-keys.zip` mit `signing-private.pem` und
+`signing-public.pem` herunter. Der Endpunkt ist nur verfügbar, wenn
+`Security:AllowSigningKeyExport` explizit auf `true` gesetzt ist. Jeder Export
+wird im Audit-Log erfasst. Das private Schlüsselmaterial ausschließlich als
+verschlüsseltes Offline-Backup aufbewahren.
+
 ### GET /api/v1/admin/api-clients
 
 Listet alle API-Clients auf.

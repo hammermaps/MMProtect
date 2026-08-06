@@ -2,6 +2,8 @@ using Xunit;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using MmProtect.LicenseServer.Data;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Data.Common;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -19,10 +21,14 @@ public sealed class SmokeTests : IDisposable
     private readonly WebApplicationFactory<Program> _factory;
     private readonly HttpClient _client;
     private readonly string _dbPath;
+    private readonly string _signingKeyPath;
 
     public SmokeTests()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"mmtest_{Guid.NewGuid():N}.db");
+        _signingKeyPath = Path.Combine(Path.GetTempPath(), $"mmtest_signing_{Guid.NewGuid():N}.pem");
+        using (var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256))
+            File.WriteAllText(_signingKeyPath, signingKey.ExportPkcs8PrivateKeyPem());
 
         // Apply the SQLite schema on a non-pooled connection so that
         // "PRAGMA foreign_keys=ON" in the schema file does not leak into
@@ -49,6 +55,8 @@ public sealed class SmokeTests : IDisposable
                 builder.UseSetting("Security:AdminApiKeys:0", "test-admin-key");
                 builder.UseSetting("Security:LeaseTtlMinutes", "60");
                 builder.UseSetting("Security:GracePeriodDays", "7");
+                builder.UseSetting("Security:SigningPrivateKeyFile", _signingKeyPath);
+                builder.UseSetting("Security:AllowSigningKeyExport", "true");
             });
 
         _client = _factory.CreateClient();
@@ -63,6 +71,30 @@ public sealed class SmokeTests : IDisposable
         resp.EnsureSuccessStatusCode();
         var body = await resp.Content.ReadAsStringAsync();
         Assert.Contains("ok", body);
+    }
+
+    [Fact]
+    public async Task SigningKeyArchive_ContainsPublicAndPrivatePem()
+    {
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-admin-key");
+
+        var response = await adminClient.GetAsync("/api/v1/admin/signing-key-archive");
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("application/zip", response.Content.Headers.ContentType?.MediaType);
+
+        var zipBytes = await response.Content.ReadAsByteArrayAsync();
+        using var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read);
+        var privateEntry = archive.GetEntry("signing-private.pem");
+        var publicEntry = archive.GetEntry("signing-public.pem");
+        Assert.NotNull(privateEntry);
+        Assert.NotNull(publicEntry);
+
+        using var privateReader = new StreamReader(privateEntry!.Open());
+        using var publicReader = new StreamReader(publicEntry!.Open());
+        Assert.Contains("BEGIN PRIVATE KEY", await privateReader.ReadToEndAsync());
+        Assert.Contains("BEGIN PUBLIC KEY", await publicReader.ReadToEndAsync());
     }
 
     [Fact]
@@ -896,6 +928,8 @@ public sealed class SmokeTests : IDisposable
         SqliteConnection.ClearAllPools();
         if (File.Exists(_dbPath))
             File.Delete(_dbPath);
+        if (File.Exists(_signingKeyPath))
+            File.Delete(_signingKeyPath);
     }
 }
 

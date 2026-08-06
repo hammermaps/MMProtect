@@ -172,6 +172,7 @@ Copy `configs/server.appsettings.example.json` to `/opt/mmprotect/server/appsett
   },
   "Security": {
     "SigningPrivateKeyFile": "/opt/mmprotect/keys/signing-private.pem",
+    "AllowSigningKeyExport": false,
     "KeyEncryptionKey": "<32-byte hex — generated with: openssl rand -hex 32>",
     "EncoderApiKeys": [
       "your-encoder-api-key-here"
@@ -304,6 +305,12 @@ Der **Admin API Key** (`Security:AdminApiKeys`) erlaubt Zugriff auf alle `/api/v
 - Statistiken abrufen
 - API-Clients anlegen und löschen
 
+Der Export des Signing-Key-Paars in der Admin-UI bleibt standardmäßig gesperrt.
+Für einen kontrollierten, verschlüsselten Offline-Backup-Vorgang kann
+`Security:AllowSigningKeyExport` explizit auf `true` gesetzt werden. Der
+Download enthält den privaten Schlüssel und wird im Audit-Log festgehalten.
+Nach dem Backup die Option wieder auf `false` setzen.
+
 ```bash
 # Admin-Endpunkt testen
 curl -s https://license.example.com/api/v1/admin/stats \
@@ -324,6 +331,7 @@ Der Encoder API Key (`Security:EncoderApiKeys`) berechtigt nur zu `/api/v1/encod
 | `/api/v1/admin/activations/{uid}` | DELETE | Aktivierung löschen (Re-Aktivierung ermöglichen) |
 | `/api/v1/admin/audit-log` | GET | Audit-Log abfragen |
 | `/api/v1/admin/stats` | GET | Aggregierte Zählerstände |
+| `/api/v1/admin/signing-key-archive` | GET | Opt-in ZIP-Export des Signing-Key-Paars |
 | `/api/v1/admin/api-clients` | GET | API-Clients auflisten |
 | `/api/v1/admin/api-clients` | POST | API-Client anlegen |
 | `/api/v1/admin/api-clients/{uid}` | DELETE | API-Client sperren |

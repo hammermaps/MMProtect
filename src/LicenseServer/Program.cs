@@ -6,6 +6,8 @@ using MmProtect.LicenseServer.Models;
 using MmProtect.LicenseServer.Security;
 using System.Net;
 using System.Security.Cryptography;
+using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 
@@ -1086,6 +1088,55 @@ adminApi.MapGet("/stats", async (IDbConnectionFactory db) =>
         new ActivationStatsDto(actTotal, actActive, actRevoked),
         new LeaseStatsDto(leases24h),
         "ok"));
+});
+
+// Exporting a private signing key is intentionally opt-in. It is meant solely
+// for an administrator's encrypted backup workflow, never for customer delivery.
+adminApi.MapGet("/signing-key-archive", async (
+    IConfiguration configuration,
+    AuditService audit,
+    HttpContext httpContext) =>
+{
+    if (!configuration.GetValue("Security:AllowSigningKeyExport", false))
+        return Results.Json(ErrorDto.Create("KEY_EXPORT_DISABLED",
+            "Signing-key export is disabled by server configuration."), statusCode: 403);
+
+    var privateKeyFile = configuration["Security:SigningPrivateKeyFile"];
+    if (string.IsNullOrWhiteSpace(privateKeyFile) || !File.Exists(privateKeyFile))
+        return Results.Json(ErrorDto.Create("SIGNING_KEY_UNAVAILABLE",
+            "No signing key is configured for export."), statusCode: 409);
+
+    byte[] privateKeyPem;
+    string publicKeyPem;
+    try
+    {
+        privateKeyPem = await File.ReadAllBytesAsync(privateKeyFile);
+        using var key = ECDsa.Create();
+        key.ImportFromPem(Encoding.UTF8.GetString(privateKeyPem));
+        publicKeyPem = key.ExportSubjectPublicKeyInfoPem();
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
+    {
+        return Results.Json(ErrorDto.Create("SIGNING_KEY_UNAVAILABLE",
+            "The configured signing key could not be exported."), statusCode: 409);
+    }
+
+    await using var zipStream = new MemoryStream();
+    using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: true))
+    {
+        var privateEntry = archive.CreateEntry("signing-private.pem", CompressionLevel.Optimal);
+        await using (var entryStream = privateEntry.Open())
+            await entryStream.WriteAsync(privateKeyPem);
+
+        var publicEntry = archive.CreateEntry("signing-public.pem", CompressionLevel.Optimal);
+        await using (var entryStream = publicEntry.Open())
+            await entryStream.WriteAsync(Encoding.UTF8.GetBytes(publicKeyPem));
+    }
+
+    await audit.LogAsync("admin", "signing_key_exported", "signing_key", null,
+        httpContext.Connection.RemoteIpAddress?.ToString(), new { format = "zip" });
+
+    return Results.File(zipStream.ToArray(), "application/zip", "mmprotect-signing-keys.zip");
 });
 
 /* List API clients (keys are never exposed here) */

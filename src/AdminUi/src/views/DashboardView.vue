@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { fetchStats, type StatsDto } from '../api'
+import { downloadSigningKeyArchive, fetchStats, type StatsDto } from '../api'
 
 const stats   = ref<StatsDto | null>(null)
 const error   = ref('')
 const loading = ref(true)
+const exportError = ref('')
+const exporting = ref(false)
 
 onMounted(async () => {
   try   { stats.value = await fetchStats() }
@@ -13,6 +15,26 @@ onMounted(async () => {
 })
 
 function fmt(n: number) { return n.toLocaleString() }
+
+async function exportSigningKeys() {
+  if (!window.confirm('The ZIP contains the private signing key. Store it only in an encrypted backup. Continue?')) return
+
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const archive = await downloadSigningKeyArchive()
+    const url = URL.createObjectURL(archive)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'mmprotect-signing-keys.zip'
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (e: unknown) {
+    exportError.value = e instanceof Error ? e.message : 'Key export failed.'
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -62,6 +84,19 @@ function fmt(n: number) { return n.toLocaleString() }
           <RouterLink to="/telemetry"     class="btn btn-outline">Telemetry</RouterLink>
           <RouterLink to="/error-reports" class="btn btn-outline">Error Reports</RouterLink>
         </div>
+      </div>
+
+      <div class="panel" style="margin-top:24px">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Signing key backup</div>
+            <div class="form-hint">The ZIP contains both the public and private ECDSA key. Keep it encrypted and offline.</div>
+          </div>
+          <button class="btn btn-danger" :disabled="exporting" @click="exportSigningKeys">
+            {{ exporting ? 'Preparing…' : 'Download key ZIP' }}
+          </button>
+        </div>
+        <div v-if="exportError" class="alert alert-error" style="margin:16px">{{ exportError }}</div>
       </div>
     </template>
   </div>

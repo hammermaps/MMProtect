@@ -29,6 +29,18 @@ export interface StatsDto {
 }
 export const fetchStats = () => request<StatsDto>('/api/v1/admin/stats')
 
+export async function downloadSigningKeyArchive(): Promise<Blob> {
+  const auth = useAuthStore()
+  const res = await fetch('/api/v1/admin/signing-key-archive', {
+    headers: { Authorization: `Bearer ${auth.apiKey}` },
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body?.error?.message ?? `HTTP ${res.status}`)
+  }
+  return res.blob()
+}
+
 // ── Licenses ──────────────────────────────────────────────────────────
 
 export interface LicenseDto {
