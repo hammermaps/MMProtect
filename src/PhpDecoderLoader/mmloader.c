@@ -1480,8 +1480,12 @@ static void mmloader_error_cb(int type, zend_string *error_filename,
             cJSON_AddNumberToObject(entry, "line", (double)error_lineno);
             char ts[32];
             time_t now = time(NULL);
-            struct tm *t = gmtime(&now);
-            strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", t);
+            struct tm tm_buf;
+            if (gmtime_r(&now, &tm_buf) != NULL) {
+                strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+            } else {
+                ts[0] = '\0';
+            }
             cJSON_AddStringToObject(entry, "timestamp", ts);
             if (cJSON_AddItemToArray(MMLOADER_G(error_batch), entry))
                 MMLOADER_G(error_batch_count)++;
