@@ -175,6 +175,16 @@ erfolgreichen Publish und startet ihn anschließend wieder:
 ./build.sh
 ```
 
+Bei einer bestehenden SQLite-Installation muss das Datenbankschema vor dem
+ersten Start einer neueren Serverversion migriert werden. Übergib den in
+`appsettings.Production.json` konfigurierten SQLite-Dateipfad; das Skript legt
+zuvor eine zeitgestempelte Sicherung neben der Datenbank an:
+
+```bash
+sudo scripts/linux/migrate-sqlite-schema.sh /opt/mmprotect/data/mmprotect.db
+sudo systemctl restart mmprotect.service
+```
+
 ---
 
 ## Schritt 7 — TLS mit nginx einrichten
