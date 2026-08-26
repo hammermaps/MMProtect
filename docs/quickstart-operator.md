@@ -166,14 +166,22 @@ curl http://localhost:5000/health
 
 ### Aktualisieren
 
-Für den hier dokumentierten Dienstnamen `mmprotect.service` baut und deployt
-`./build.sh` den Release-Server nach `/opt/mmprotect/server`. Das Skript bewahrt
-vorhandene `appsettings*.json`-Dateien, stoppt den Dienst erst nach einem
-erfolgreichen Publish und startet ihn anschließend wieder:
+Für eine nicht-destruktive Aktualisierung des hier dokumentierten Dienstes
+`mmprotect.service` baut und deployt `./update.sh` den Release-Server nach
+`/opt/mmprotect/server`. Es bewahrt vorhandene `appsettings*.json`-Dateien,
+lokale Zertifikatsdateien, die Datenbank und alle Daten. Die systemd- und
+nginx-Konfiguration sowie Let's-Encrypt-Zertifikate außerhalb dieses Verzeichnisses
+werden von beiden Skripten nicht verändert:
 
 ```bash
-./build.sh
+./update.sh
 ```
+
+`./build.sh /absoluter/pfad/zur/mmprotect.db` ist ausschließlich für einen
+Neuaufbau gedacht: Es löscht die explizit angegebene SQLite-Datenbank inklusive
+WAL/SHM, initialisiert das aktuelle Schema und ruft danach `update.sh` auf.
+Damit bleiben die grundlegende Serverkonfiguration und die SSL-Zertifikate
+erhalten.
 
 Bei einer bestehenden SQLite-Installation muss das Datenbankschema vor dem
 ersten Start einer neueren Serverversion migriert werden. Übergib den in

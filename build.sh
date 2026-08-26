@@ -1,62 +1,39 @@
 #!/usr/bin/env bash
-# Build and deploy the MMProtect License Server used by mmprotect.service.
-#
-# The service must run this exact location:
-#   /usr/bin/dotnet /opt/mmprotect/server/MmProtect.LicenseServer.dll \
-#       --contentRoot /opt/mmprotect/server
-#
-# Existing appsettings*.json files are deliberately preserved: they contain the
-# production database connection and key-file paths and must never be replaced
-# by a repository example configuration.
+# Reset the MMProtect application and one explicitly selected SQLite database.
+# Application configuration, certificate files, systemd/nginx setup, and SSL
+# certificates outside /opt/mmprotect/server are retained by ./update.sh.
+# For a non-destructive application update, use ./update.sh instead.
 
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT="$ROOT/src/LicenseServer/LicenseServer.csproj"
-SERVICE="mmprotect.service"
-TARGET="/opt/mmprotect/server"
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/mmprotect-server-publish.XXXXXX")"
+SCHEMA="$ROOT/database/sqlite/schema.sql"
+DATABASE="${1:-}"
 
-cleanup() {
-    rm -rf -- "$STAGE"
-}
-trap cleanup EXIT
+if [[ -z "$DATABASE" || "$DATABASE" != /* ]]; then
+    echo "Verwendung: $0 /absoluter/pfad/zur/mmprotect.db" >&2
+    echo 'WARNUNG: Dieser Befehl löscht die angegebene SQLite-Datenbank unwiderruflich.' >&2
+    exit 2
+fi
 
-if [[ ! -f "$PROJECT" ]]; then
-    echo "Projektdatei fehlt: $PROJECT" >&2
+if [[ ! -f "$SCHEMA" ]]; then
+    echo "SQLite-Schema fehlt: $SCHEMA" >&2
     exit 1
 fi
 
-if ! command -v rsync >/dev/null 2>&1; then
-    echo 'rsync wird für die sichere Synchronisation nach /opt benötigt.' >&2
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo 'sqlite3 ist nicht installiert.' >&2
     exit 1
 fi
 
-cd "$ROOT"
+echo "[build] Dienst anhalten: mmprotect.service"
+sudo systemctl stop mmprotect.service
 
-echo '[build] Admin UI bauen'
-bash scripts/linux/build-admin-ui.sh
+echo "[build] SQLite-Datenbank zurücksetzen: $DATABASE"
+sudo rm -f -- "$DATABASE" "${DATABASE}-wal" "${DATABASE}-shm"
+sudo install -d -o mmprotect -g mmprotect -m 0750 "$(dirname -- "$DATABASE")"
+sudo sqlite3 "$DATABASE" < "$SCHEMA"
+sudo chown mmprotect:mmprotect "$DATABASE"
 
-echo '[build] License Server veröffentlichen'
-dotnet publish "$PROJECT" -c Release -r linux-x64 --self-contained false -o "$STAGE"
-
-if [[ ! -f "$STAGE/MmProtect.LicenseServer.dll" ]]; then
-    echo 'Publish-Ausgabe enthält MmProtect.LicenseServer.dll nicht.' >&2
-    exit 1
-fi
-
-echo "[deploy] Dienst anhalten: $SERVICE"
-sudo systemctl stop "$SERVICE"
-
-echo "[deploy] Serverdateien nach $TARGET synchronisieren"
-sudo install -d -m 0755 "$TARGET"
-sudo rsync -a --delete-delay --chown=mmprotect:mmprotect \
-    --exclude 'appsettings*.json' \
-    "$STAGE/" "$TARGET/"
-
-echo "[deploy] Dienst starten: $SERVICE"
-sudo systemctl start "$SERVICE"
-sudo systemctl is-active --quiet "$SERVICE"
-
-echo '[deploy] Erfolgreich. Status:'
-sudo systemctl --no-pager --full status "$SERVICE"
+echo '[build] Neue Datenbank erstellt; Anwendung aktualisieren'
+exec "$ROOT/update.sh"
