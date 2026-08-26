@@ -177,11 +177,14 @@ werden von beiden Skripten nicht verändert:
 ./update.sh
 ```
 
-`./build.sh /absoluter/pfad/zur/mmprotect.db` ist ausschließlich für einen
-Neuaufbau gedacht: Es löscht die explizit angegebene SQLite-Datenbank inklusive
-WAL/SHM, initialisiert das aktuelle Schema und ruft danach `update.sh` auf.
-Damit bleiben die grundlegende Serverkonfiguration und die SSL-Zertifikate
-erhalten.
+`./build.sh` ist ausschließlich für einen Neuaufbau gedacht und benötigt keine
+Parameter oder Rückfrage. Es liest den absoluten SQLite-Pfad aus
+`/opt/mmprotect/server/appsettings.Production.json`, löscht diese Datenbank
+inklusive WAL/SHM, initialisiert das aktuelle Schema und ruft danach
+`update.sh` auf. Damit bleiben die grundlegende Serverkonfiguration und die
+SSL-Zertifikate erhalten. Für einen anderen Konfigurationspfad kann vor dem
+Aufruf `MMPROTECT_CONFIG=/absoluter/pfad/appsettings.Production.json` gesetzt
+werden.
 
 Bei einer bestehenden SQLite-Installation muss das Datenbankschema vor dem
 ersten Start einer neueren Serverversion migriert werden. Übergib den in
