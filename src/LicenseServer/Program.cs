@@ -140,6 +140,26 @@ if (adminKeys.Length == 0 || adminKeys.All(k => k.Contains("change-me", StringCo
 if (proxyEnabled)
     app.UseForwardedHeaders();
 
+// Encoder requests may carry gzip-compressed file-registration batches and
+// manifests. Limit decompression to the authenticated encoder API; plain JSON
+// remains supported for older encoder versions and all other endpoints.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/v1/encoder", StringComparison.OrdinalIgnoreCase)
+        && context.Request.Headers.ContentEncoding.Any(value =>
+            string.Equals(value, "gzip", StringComparison.OrdinalIgnoreCase)))
+    {
+        using var decompressedBody = new GZipStream(
+            context.Request.Body, CompressionMode.Decompress, leaveOpen: false);
+        context.Request.Body = decompressedBody;
+        context.Request.ContentLength = null;
+        await next();
+        return;
+    }
+
+    await next();
+});
+
 // Serve the embedded Vue Admin UI from wwwroot/admin/.
 // Candidate order:
 //   1. Next to the DLL (dotnet publish output, Docker image)

@@ -74,6 +74,34 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
+    public async Task EncoderEndpoint_AcceptsGzipCompressedJson()
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            externalCustomerRef = "cref-gzip-001",
+            name = new string('x', 16 * 1024),
+            email = "gzip@example.invalid",
+            notes = "compressed encoder request"
+        });
+
+        byte[] compressed;
+        using (var output = new MemoryStream())
+        {
+            using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))
+                gzip.Write(payload);
+            compressed = output.ToArray();
+        }
+
+        using var content = new ByteArrayContent(compressed);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        content.Headers.ContentEncoding.Add("gzip");
+
+        using var response = await _client.PostAsync("/api/v1/encoder/customers/upsert", content);
+        response.EnsureSuccessStatusCode();
+        Assert.Contains("cust_", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task SigningKeyArchive_ContainsPublicAndPrivatePem()
     {
         var adminClient = _factory.CreateClient();

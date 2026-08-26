@@ -153,8 +153,10 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
-    # Maximale Request-Größe (Lease-Body ist < 1 KB)
-    client_max_body_size 64k;
+    # Encoder-Batches und signierte Manifeste können deutlich größer als ein
+    # Runtime-Lease sein. Der Encoder komprimiert große JSON-Anfragen mit gzip;
+    # diese Grenze gilt für die komprimierte HTTP-Anfrage.
+    client_max_body_size 1m;
 
     location / {
         proxy_pass         http://127.0.0.1:5000;

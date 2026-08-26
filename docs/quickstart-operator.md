@@ -164,6 +164,17 @@ curl http://localhost:5000/health
 # → {"status":"ok","version":"..."}
 ```
 
+### Aktualisieren
+
+Für den hier dokumentierten Dienstnamen `mmprotect.service` baut und deployt
+`./build.sh` den Release-Server nach `/opt/mmprotect/server`. Das Skript bewahrt
+vorhandene `appsettings*.json`-Dateien, stoppt den Dienst erst nach einem
+erfolgreichen Publish und startet ihn anschließend wieder:
+
+```bash
+./build.sh
+```
+
 ---
 
 ## Schritt 7 — TLS mit nginx einrichten
@@ -182,6 +193,7 @@ server {
 
     ssl_certificate     /etc/letsencrypt/live/license.ihre-domain.de/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/license.ihre-domain.de/privkey.pem;
+    client_max_body_size 1m;
 
     location / {
         proxy_pass http://localhost:5000;

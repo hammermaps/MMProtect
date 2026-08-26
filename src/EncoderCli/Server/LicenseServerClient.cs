@@ -1,10 +1,17 @@
 using System.Net.Http.Json;
+using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace MmProtect.EncoderCli.Server;
 
 public sealed class LicenseServerClient
 {
+    // Keeps large registration batches and manifests below reverse-proxy body limits.
+    // The server accepts both plain JSON and gzip-compressed JSON for backwards
+    // compatibility with older encoders.
+    private const int GzipThresholdBytes = 8 * 1024;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http;
 
     public LicenseServerClient(HttpClient http, string apiKey)
@@ -51,7 +58,8 @@ public sealed class LicenseServerClient
                 occurredAt = DateTimeOffset.UtcNow,
                 data
             };
-            using var response = await _http.PostAsJsonAsync(url, payload);
+            using var content = CreateJsonContent(payload);
+            using var response = await _http.PostAsync(url, content);
             // ignore status — telemetry is best-effort
         }
         catch { /* telemetry errors must never propagate */ }
@@ -59,14 +67,37 @@ public sealed class LicenseServerClient
 
     private async Task<T> PostAsync<T>(string url, object body)
     {
-        using var response = await _http.PostAsJsonAsync(url, body);
+        using var content = CreateJsonContent(body);
+        using var response = await _http.PostAsync(url, content);
         var text = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Serverfehler {response.StatusCode}: {text}");
 
-        var result = JsonSerializer.Deserialize<T>(text, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var result = JsonSerializer.Deserialize<T>(text, JsonOptions);
         return result ?? throw new InvalidOperationException($"Leere Serverantwort für {url}");
+    }
+
+    private static HttpContent CreateJsonContent(object body)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonOptions);
+        if (json.Length < GzipThresholdBytes)
+            return CreateContent(json, isGzip: false);
+
+        using var compressed = new MemoryStream();
+        using (var gzip = new GZipStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+            gzip.Write(json);
+
+        return CreateContent(compressed.ToArray(), isGzip: true);
+    }
+
+    private static ByteArrayContent CreateContent(byte[] bytes, bool isGzip)
+    {
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        if (isGzip)
+            content.Headers.ContentEncoding.Add("gzip");
+        return content;
     }
 }
 

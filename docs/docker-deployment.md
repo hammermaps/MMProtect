@@ -243,6 +243,9 @@ server {
     ssl_certificate     /etc/letsencrypt/live/license.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/license.example.com/privkey.pem;
 
+    # Erforderlich für Encoder-Dateibatches und Manifest-Uploads.
+    client_max_body_size 1m;
+
     location / {
         proxy_pass         http://127.0.0.1:8080;
         proxy_set_header   Host $host;
