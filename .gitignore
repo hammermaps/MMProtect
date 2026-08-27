@@ -4,6 +4,8 @@ src/EncoderCli/bin/
 src/EncoderCli/obj/
 src/EncoderCli.Tests/bin/
 src/EncoderCli.Tests/obj/
+src/EncoderGui/bin/
+src/EncoderGui/obj/
 src/LicenseServer/bin/
 src/LicenseServer/obj/
 src/LicenseServer.Tests/bin/

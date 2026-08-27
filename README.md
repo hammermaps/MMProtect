@@ -10,7 +10,7 @@ Ein vollständiges Schutzsystem für PHP-8.4/8.5-Projektcode: verschlüsseln, li
 | Komponente | Technologie | Status |
 |---|---|---|
 | **License Server** | C# / ASP.NET Core 8, MySQL / SQLite | Produktionsbereit |
-| **Encoder CLI** | C# / .NET 8 | Vollständig lauffähig |
+| **Encoder CLI** | C# / .NET 10 | Vollständig lauffähig |
 | **PHP Decoder/Loader** | C (Zend Extension), PHP 8.4 + 8.5 | Vollständig implementiert |
 
 **Tests**
@@ -83,7 +83,7 @@ sudo apt-get install -y \
     build-essential autoconf pkg-config \
     php8.4-dev php8.4-cli php8.4-opcache \
     libssl-dev libcurl4-openssl-dev \
-    dotnet-sdk-8.0 sqlite3 curl git openssl
+    dotnet-sdk-10.0 sqlite3 curl git openssl
 ```
 
 **2. Alles bauen**

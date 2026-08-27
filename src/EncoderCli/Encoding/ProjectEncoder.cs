@@ -17,8 +17,10 @@ public sealed class ProjectEncoder
         _client = client;
     }
 
-    public async Task EncodeAsync(EncoderConfig config, ProjectOptions project, bool verbose, bool dryRun = false)
+    public async Task EncodeAsync(EncoderConfig config, ProjectOptions project, bool verbose, bool dryRun = false,
+        TextWriter? log = null, CancellationToken cancellationToken = default, Action<int, int>? progress = null)
     {
+        log ??= Console.Out;
         var sourceRoot = Path.GetFullPath(project.SourceRoot);
         var outputRoot = Path.GetFullPath(project.OutputRoot);
 
@@ -27,9 +29,9 @@ public sealed class ProjectEncoder
 
         if (dryRun)
         {
-            Console.WriteLine($"[DRY-RUN] Projekt: {project.ProjectKey}");
-            Console.WriteLine($"[DRY-RUN] Quelle:  {sourceRoot}");
-            Console.WriteLine($"[DRY-RUN] Ziel:    {outputRoot}");
+            log.WriteLine($"[DRY-RUN] Projekt: {project.ProjectKey}");
+            log.WriteLine($"[DRY-RUN] Quelle:  {sourceRoot}");
+            log.WriteLine($"[DRY-RUN] Ziel:    {outputRoot}");
             var dryMmIgnore = MmIgnoreRuleSet.LoadFromSourceRoot(sourceRoot, config.Defaults.MmIgnoreFile);
             IEnumerable<string> dryFiles;
             if (dryMmIgnore.HasRules)
@@ -41,16 +43,16 @@ public sealed class ProjectEncoder
                     .Where(p => string.Equals(Path.GetExtension(p), ".php", StringComparison.OrdinalIgnoreCase))
                     .Select(p => Path.GetRelativePath(sourceRoot, p).Replace('\\', '/'));
             int dryCount = 0;
-            foreach (var rel in dryFiles) { Console.WriteLine($"[DRY-RUN] würde verschlüsseln: {rel}"); dryCount++; }
-            Console.WriteLine($"[DRY-RUN] {dryCount} Datei(en) würden verschlüsselt. Nichts wurde geschrieben.");
+            foreach (var rel in dryFiles) { cancellationToken.ThrowIfCancellationRequested(); log.WriteLine($"[DRY-RUN] würde verschlüsseln: {rel}"); dryCount++; }
+            log.WriteLine($"[DRY-RUN] {dryCount} Datei(en) würden verschlüsselt. Nichts wurde geschrieben.");
             return;
         }
 
         Directory.CreateDirectory(outputRoot);
 
-        Console.WriteLine($"Projekt: {project.ProjectKey}");
-        Console.WriteLine($"Quelle:  {sourceRoot}");
-        Console.WriteLine($"Ziel:    {outputRoot}");
+        log.WriteLine($"Projekt: {project.ProjectKey}");
+        log.WriteLine($"Quelle:  {sourceRoot}");
+        log.WriteLine($"Ziel:    {outputRoot}");
 
         var sw = config.Telemetry.Enabled ? Stopwatch.StartNew() : null;
 
@@ -140,8 +142,10 @@ public sealed class ProjectEncoder
         // Pending list for second write pass after manifest hash is known
         var pendingFiles = new List<(string OutPath, MmencHeader Header, byte[] Ciphertext)>();
 
+        var encodedCount = 0;
         foreach (var path in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(sourceRoot, path).Replace('\\', '/');
 
             // Optional PHP syntax check before encryption
@@ -208,14 +212,18 @@ public sealed class ProjectEncoder
                 "HKDF-SHA256"));
 
             if (verbose)
-                Console.WriteLine($"encoded: {relative}");
+                log.WriteLine($"encoded: {relative}");
+            progress?.Invoke(++encodedCount, files.Count);
         }
 
         var registrations = manifestFiles.Select(f => new FileRegistrationDto(
             f.FileId, f.RelativePath, f.PathHash, f.PlainHash, f.CipherHash, f.Algorithm, f.Kdf)).ToArray();
 
         foreach (var batch in registrations.Chunk(FileRegistrationBatchSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             await _client.RegisterFilesAsync(build.BuildId, batch);
+        }
 
         var manifest = new ManifestDto(
             "MMENC-MANIFEST-1",
@@ -272,6 +280,7 @@ public sealed class ProjectEncoder
         // Second pass: write all encrypted files with the correct manifestHash
         foreach (var (outPath, fileHeader, ciphertext) in pendingFiles)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             fileHeader.ManifestHash = manifestHash;
             await File.WriteAllBytesAsync(outPath, MmencContainer.Assemble(fileHeader, ciphertext));
         }
@@ -300,10 +309,10 @@ public sealed class ProjectEncoder
             // NEVER enable in production.
             var devKeyPath = Path.Combine(protectDir, "dev-buildkey.b64");
             await File.WriteAllTextAsync(devKeyPath, build.BuildKey + "\n");
-            Console.WriteLine($"[DEV] dev-buildkey.b64 geschrieben → {devKeyPath}");
+            log.WriteLine($"[DEV] dev-buildkey.b64 geschrieben → {devKeyPath}");
         }
 
-        Console.WriteLine($"Fertig. Geschützte Dateien: {manifestFiles.Count}");
+        log.WriteLine($"Fertig. Geschützte Dateien: {manifestFiles.Count}");
     }
 
     private static void PhpLint(string phpBinary, string filePath, string relativePath)

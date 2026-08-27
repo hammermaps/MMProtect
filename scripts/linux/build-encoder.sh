@@ -20,6 +20,15 @@ dotnet test "src/EncoderCli.Tests/EncoderCli.Tests.csproj" --configuration Relea
 dotnet publish "$PROJECT" -c Release -r linux-x64 --self-contained true -o "$OUT"
 echo "[build-encoder] linux-x64: $OUT/mmencoder  ($(du -sh "$OUT/mmencoder" 2>/dev/null | cut -f1 || echo '?'))"
 
+GUI_PROJECT="src/EncoderGui/EncoderGui.csproj"
+GUI_OUT="artifacts/encoder-gui/linux-x64"
+dotnet publish "$GUI_PROJECT" -c Release -r linux-x64 --self-contained true -o "$GUI_OUT"
+echo "[build-encoder] GUI linux-x64: $GUI_OUT/mmencoder-gui"
+
+GUI_OUT_WIN="artifacts/encoder-gui/win-x64"
+dotnet publish "$GUI_PROJECT" -c Release -r win-x64 --self-contained true -o "$GUI_OUT_WIN"
+echo "[build-encoder] GUI win-x64: $GUI_OUT_WIN/mmencoder-gui.exe"
+
 # linux-arm64 — Raspberry Pi, AWS Graviton, Apple M1 Linux etc.
 OUT_ARM="artifacts/encoder/linux-arm64"
 dotnet publish "$PROJECT" -c Release -r linux-arm64 --self-contained true -o "$OUT_ARM"

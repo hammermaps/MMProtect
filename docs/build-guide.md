@@ -285,7 +285,7 @@ artifacts/
    └─ mmprotect-<version>.zip   (release artefacts only)
 ```
 
-> **Self-contained Encoder:** Die Encoder-Binaries ab Version 0.1.0 bündeln die .NET 8-Runtime. Zielmaschinen benötigen kein .NET SDK oder Runtime-Paket. Die Binaries sind größer (~60–90 MB), aber vollständig portabel.
+> **Self-contained Encoder:** Die Encoder-Binaries ab Version 0.1.0 bündeln die .NET-10-Runtime. Zielmaschinen benötigen kein .NET SDK oder Runtime-Paket. Die Binaries sind größer (~60–90 MB), aber vollständig portabel.
 
 > **Release vs. Dev:** Release builds (`mmloader.so`, `mmencoder`) sind für Kundenverteilung gedacht. Dev builds (`mmloader-dev.so`, Encoder im Debug-Config) sind ausschließlich für interne Entwicklung — sie enthalten `MMPROTECT_DEV_BUILD`, das dev_mode aktiviert, Signing-Key-Anforderungen umgeht und weitere INI-Einträge freigibt.
 
@@ -337,7 +337,7 @@ apt-cache policy libssl-dev openssl
 
 ### `.NET` SDK version mismatch
 
-Check `global.json` if present. The project targets `net8.0`. Use SDK 8.0.x or later.
+Check `global.json` if present. The encoder projects target `net10.0`. Use SDK 10.0.x or later.
 
 ### Loader builds but crashes at load time
 

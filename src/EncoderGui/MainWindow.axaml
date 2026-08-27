@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MmProtect.EncoderGui.MainWindow" Title="MMProtect Encoder" Width="1050" Height="760" MinWidth="820" MinHeight="600">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="18">
+    <Border Background="#3A1F1F" Padding="12" CornerRadius="5"><TextBlock TextWrapping="Wrap" Foreground="#FFE2E2" Text="Sicherheits-Hinweis: Der Encoder-API-Schlüssel wird optional projektlokal in .mmprotect/gui-project.json gespeichert. Diese Datei wird in .gitignore eingetragen; niemals weitergeben oder einchecken."/></Border>
+    <TabControl Grid.Row="1" Margin="0,14">
+      <TabItem Header="1. Server &amp; Projekt"><ScrollViewer><StackPanel Spacing="7" Margin="12">
+        <TextBlock Text="License Server und API-Schlüssel" FontWeight="Bold"/><TextBox Name="ServerUrl" PlaceholderText="https://license.example.com"/><TextBox Name="ApiKey" PasswordChar="●" PlaceholderText="Encoder-API-Schlüssel"/>
+        <TextBlock Text="Projekt und Kunde" FontWeight="Bold" Margin="0,10,0,0"/><TextBox Name="ProjectKey" PlaceholderText="Projektkennung"/><TextBox Name="ProjectName" PlaceholderText="Projektname"/><TextBox Name="Version" PlaceholderText="Version"/><TextBox Name="CustomerRef" PlaceholderText="Kundenreferenz"/><TextBox Name="CustomerName" PlaceholderText="Kundenname"/><TextBox Name="CustomerEmail" PlaceholderText="E-Mail (optional)"/>
+        <TextBlock Text="Lizenz" FontWeight="Bold" Margin="0,10,0,0"/><Grid ColumnDefinitions="*,Auto"><TextBox Name="LicenseKey" PlaceholderText="Lizenzschlüssel"/><Button Grid.Column="1" Margin="8,0,0,0" Click="GenerateLicenseKey">Schlüssel erzeugen</Button></Grid><TextBox Name="Features" PlaceholderText="Features, durch Komma getrennt"/>
+      </StackPanel></ScrollViewer></TabItem>
+      <TabItem Header="2. Dateien &amp; Regeln"><ScrollViewer><StackPanel Spacing="7" Margin="12">
+        <TextBlock Text="Quellordner"/><Grid ColumnDefinitions="*,Auto"><TextBox Name="SourceRoot"/><Button Grid.Column="1" Margin="8,0,0,0" Click="ChooseSource">Wählen…</Button></Grid>
+        <TextBlock Text="Zielordner (wird nie still überschrieben)"/><Grid ColumnDefinitions="*,Auto"><TextBox Name="OutputRoot"/><Button Grid.Column="1" Margin="8,0,0,0" Click="ChooseOutput">Wählen…</Button></Grid>
+        <TextBlock Text="Include-Regeln (eine pro Zeile)"/><TextBox Name="Include" AcceptsReturn="True" Height="70" PlaceholderText="src/**/*.php"/>
+        <TextBlock Text="Exclude-Regeln (eine pro Zeile)"/><TextBox Name="Exclude" AcceptsReturn="True" Height="70" PlaceholderText="vendor/**"/>
+        <TextBlock Text="Klartext-Regeln (eine pro Zeile)"/><TextBox Name="CopyPlain" AcceptsReturn="True" Height="70" PlaceholderText="vendor/**&#x0a;composer.json"/>
+        <TextBlock Name="IgnoreInfo" TextWrapping="Wrap"/>
+      </StackPanel></ScrollViewer></TabItem>
+      <TabItem Header="3. Optionen"><StackPanel Spacing="8" Margin="12"><TextBox Name="PhpVersion" PlaceholderText="PHP-Minimalversion"/><TextBox Name="PhpBinary" PlaceholderText="PHP-Binary für Lint (optional)"/><TextBox Name="DownloadUrl" PlaceholderText="Download-URL (optional)"/><ComboBox Name="Compression" SelectedIndex="0"><ComboBoxItem Content="none"/><ComboBoxItem Content="lz4"/></ComboBox><TextBox Name="Optimize" PlaceholderText="Optimierung: none, all oder comments,whitespace,..."/><CheckBox Name="Obfuscate" Content="PHP-Quellcode obfuskieren"/><CheckBox Name="LintPhp" Content="PHP-Lint aktivieren (erfordert PHP-Binary)"/></StackPanel></TabItem>
+      <TabItem Header="4. Lauf"><Grid RowDefinitions="Auto,Auto,Auto,*" Margin="12"><StackPanel Orientation="Horizontal" Spacing="8"><Button Click="Preview">Vorabprüfung &amp; Vorschau</Button><Button Name="RunButton" Click="Run">Verschlüsselung starten</Button><Button Click="Cancel">Abbrechen</Button></StackPanel><TextBlock Name="RunStatus" Grid.Row="1" Margin="0,10" TextWrapping="Wrap"/><ProgressBar Name="Progress" Grid.Row="2" Minimum="0" Maximum="1" Value="0"/><TextBox Name="Log" Grid.Row="3" Margin="0,8,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto"/></Grid></TabItem>
+    </TabControl>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"><Button Click="LoadProfile">Gespeichertes Profil laden</Button><Button Click="Import">Bestehende CLI-JSON importieren…</Button><Button Click="Export">CLI-kompatible JSON exportieren…</Button><Button Click="Save">Projektprofil speichern</Button></StackPanel>
+  </Grid>
+</Window>

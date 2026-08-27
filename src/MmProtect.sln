@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LicenseServer", "LicenseSer
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EncoderCli", "EncoderCli\EncoderCli.csproj", "{2C97F161-3D76-4A7C-807B-5000E0D1E002}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EncoderGui", "EncoderGui\EncoderGui.csproj", "{2C97F161-3D76-4A7C-807B-5000E0D1E003}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
@@ -19,6 +21,10 @@ Global
         {2C97F161-3D76-4A7C-807B-5000E0D1E002}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {2C97F161-3D76-4A7C-807B-5000E0D1E002}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {2C97F161-3D76-4A7C-807B-5000E0D1E002}.Release|Any CPU.ActiveCfg = Release|Any CPU
-        {2C97F161-3D76-4A7C-807B-5000E0D1E002}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2C97F161-3D76-4A7C-807B-5000E0D1E002}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2C97F161-3D76-4A7C-807B-5000E0D1E003}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C97F161-3D76-4A7C-807B-5000E0D1E003}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C97F161-3D76-4A7C-807B-5000E0D1E003}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C97F161-3D76-4A7C-807B-5000E0D1E003}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal

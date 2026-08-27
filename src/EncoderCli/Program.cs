@@ -2,6 +2,7 @@ using MmProtect.EncoderCli;
 using MmProtect.EncoderCli.Configuration;
 using MmProtect.EncoderCli.Encoding;
 using MmProtect.EncoderCli.Server;
+using MmProtect.EncoderCli.Gui;
 
 var cli = CliArgs.Parse(args);
 
@@ -19,6 +20,7 @@ try
         {
             var config = EncoderConfigLoader.Load(cli.ConfigPath);
             var project = config.GetProject(cli.ProjectKey, allowFirst: true);
+            new EncoderFacade().Validate(config, project);
             Console.WriteLine($"Config ok. Projekte: {config.Projects.Count}. Gewählt: {project.ProjectKey}");
             return 0;
         }
@@ -28,16 +30,7 @@ try
             var config = EncoderConfigLoader.Load(cli.ConfigPath);
             var project = config.GetProject(cli.ProjectKey, allowFirst: false);
 
-            var apiKey = config.LicenseServer.ResolveApiKey();
-            using var http = new HttpClient
-            {
-                BaseAddress = new Uri(config.LicenseServer.BaseUrl.TrimEnd('/') + "/"),
-                Timeout = TimeSpan.FromSeconds(config.LicenseServer.TimeoutSeconds <= 0 ? 30 : config.LicenseServer.TimeoutSeconds)
-            };
-
-            var client = new LicenseServerClient(http, apiKey);
-            var encoder = new ProjectEncoder(client);
-            await encoder.EncodeAsync(config, project, cli.Verbose);
+            await new EncoderFacade().EncodeAsync(config, project, cli.Verbose, Console.Out, CancellationToken.None);
             return 0;
         }
 
@@ -112,16 +105,10 @@ try
                 if (cli.LicenseServerUrl != null)
                     config.LicenseServer.BaseUrl = cli.LicenseServerUrl;
 
-                var apiKey = config.LicenseServer.ResolveApiKey();
-                using var http = new HttpClient
-                {
-                    BaseAddress = new Uri(config.LicenseServer.BaseUrl.TrimEnd('/') + "/"),
-                    Timeout = TimeSpan.FromSeconds(config.LicenseServer.TimeoutSeconds <= 0 ? 30 : config.LicenseServer.TimeoutSeconds)
-                };
-
-                var client = new LicenseServerClient(http, apiKey);
-                var encoder = new ProjectEncoder(client);
-                await encoder.EncodeAsync(config, project, cli.Verbose, dryRun: cli.DryRun);
+                if (cli.DryRun)
+                    await new ProjectEncoder(new LicenseServerClient(new HttpClient(), config.LicenseServer.ResolveApiKey())).EncodeAsync(config, project, cli.Verbose, dryRun: true);
+                else
+                    await new EncoderFacade().EncodeAsync(config, project, cli.Verbose, Console.Out, CancellationToken.None);
             }
 
             return 0;
